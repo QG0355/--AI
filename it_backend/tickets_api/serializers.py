@@ -1,26 +1,30 @@
-# it_backend/tickets_api/serializers.py
 from rest_framework import serializers
 from .models import CustomUser, Ticket, OARequest
 
 class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = CustomUser
-        # 注意：这里不应该包含 password，只返回安全信息
         fields = ['id', 'username', 'name', 'role', 'identity_id', 'is_identity_bound', 'extra_permissions']
 
 class RegisterSerializer(serializers.ModelSerializer):
+    # 确保这三个字段必填
+    name = serializers.CharField(required=True)
+    role = serializers.CharField(required=True)
+    identity_id = serializers.CharField(required=True)
+
     class Meta:
         model = CustomUser
-        fields = ['username', 'password', 'name'] # 注册时只填这三项，role 默认为 student
+        fields = ['username', 'password', 'name', 'role', 'identity_id']
         extra_kwargs = {'password': {'write_only': True}}
 
     def create(self, validated_data):
-        # 使用 create_user 自动加密密码
         user = CustomUser.objects.create_user(
             username=validated_data['username'],
             password=validated_data['password'],
-            name=validated_data.get('name', ''),
-            role='student'  # 默认角色，后续绑定时修改
+            name=validated_data['name'],
+            role=validated_data['role'],           # 保存前端传来的角色
+            identity_id=validated_data['identity_id'], # 保存前端传来的学号
+            is_identity_bound=True                 # 注册即视为已绑定
         )
         return user
 

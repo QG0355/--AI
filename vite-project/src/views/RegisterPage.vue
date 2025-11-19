@@ -8,21 +8,34 @@
 
       <form class="login-form" @submit.prevent="handleRegister">
         <div class="form-group">
-          <label for="name">姓名</label>
-          <input type="text" id="name" v-model="name" required>
+          <label>账号 (登录用)</label>
+          <input type="text" v-model="form.username" placeholder="请设置登录账号" required>
         </div>
 
         <div class="form-group">
-          <label for="username">工号 (登录用)</label>
-          <input type="text" id="username" v-model="username" required>
+          <label>密码</label>
+          <input type="password" v-model="form.password" placeholder="请设置登录密码" required>
         </div>
 
         <div class="form-group">
-          <label for="password">密码</label>
-          <input type="password" id="password" v-model="password" required>
+          <label>真实姓名</label>
+          <input type="text" v-model="form.name" placeholder="请输入您的姓名" required>
         </div>
-        
-      
+
+        <div class="form-group">
+          <label>我是：</label>
+          <select v-model="form.role" required>
+            <option value="student">在校学生</option>
+            <option value="teacher">教职工</option>
+            <option value="dorm_manager">宿管人员</option>
+            <option value="building_manager">教学楼管理员</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label>{{ identityLabel }}</label>
+          <input type="text" v-model="form.identity_id" :placeholder="`请输入您的${identityLabel}`" required>
+        </div>
         
         <button type="submit" class="btn-primary" :disabled="loading">
           {{ loading ? '注册中...' : '立即注册' }}
@@ -30,194 +43,71 @@
       </form>
 
       <div class="demo-info">
-        <p>已有账号? 
-          <RouterLink to="/login">返回登录</RouterLink>
-        </p>
+        <p>已有账号? <RouterLink to="/login">返回登录</RouterLink></p>
       </div>
       
       <p v-if="message" class="message">{{ message }}</p>
       <p v-if="error" class="error-message">{{ error }}</p>
-
     </div>
   </div>
 </template>
 
 <script setup>
-// 1. 导入 Vue、Router 和 Axios
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
-import axios from 'axios' // 我们直接用 axios，不通过 Pinia
+import axios from 'axios'
 
-// 2. 创建响应式变量
-const name = ref('')
-const username = ref('')
-const password = ref('')
-const role = ref('employee') // 默认角色
+const router = useRouter()
 const loading = ref(false)
 const error = ref(null)
 const message = ref(null)
 
-const router = useRouter() // router 实例用于页面跳转
+const form = ref({
+  username: '',
+  password: '',
+  name: '',
+  role: 'student', 
+  identity_id: ''
+})
 
-// 3. 定义注册方法
+const identityLabel = computed(() => {
+  const map = {
+    'student': '学号',
+    'teacher': '教师编号',
+    'dorm_manager': '工号',
+    'building_manager': '管理员工号'
+  }
+  return map[form.value.role] || '身份ID'
+})
+
 async function handleRegister() {
   loading.value = true
   error.value = null
-  message.value = null
-
+  
   try {
-    // 4. 【⭐ 这就是数据交换！⭐】
-    // 直接调用我们刚在 Django 上创建的 /api/register/ 接口
-    const response = await axios.post('http://127.0.0.1:8000/api/register/', {
-      name: name.value,
-      username: username.value,
-      password: password.value,
-      role: role.value,
-    })
-    
-    // 5. 注册成功
-    loading.value = false
-    message.value = '注册成功！正在跳转到登录页...'
-
-    // 2秒后自动跳转到登录页
-    setTimeout(() => {
-      router.push('/login')
-    }, 2000)
-
+    await axios.post('http://127.0.0.1:8000/api/register/', form.value)
+    message.value = '注册成功！正在跳转...'
+    setTimeout(() => router.push('/login'), 1500)
   } catch (err) {
-loading.value = false
-    console.log("详细错误信息:", err.response?.data) // <--- 加这一行！看控制台！
-
-    if (err.response && err.response.data) {
-        // 把后端返回的具体错误显示出来
-        const errorData = err.response.data
-        let errorMsg = ""
-        
-        // 遍历所有错误字段
-        for (const key in errorData) {
-            errorMsg += `${key}: ${errorData[key]} `
-        }
-        
-        error.value = errorMsg || '注册失败，请检查输入。'
-    } else {
-        error.value = '注册失败，请检查网络或联系管理员。'
-    }
+    loading.value = false
+    const data = err.response?.data || {}
+    if (data.username) error.value = "注册失败: 账号已存在"
+    else if (data.identity_id) error.value = `注册失败: 该${identityLabel.value}已被绑定`
+    else error.value = '注册失败，请检查输入'
+  }
 }
 </script>
 
 <style scoped>
-/* 样式和 LoginPage.vue 基本一样 */
-.login-page-wrapper {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  min-height: 100vh;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.login-container {
-  max-width: 400px;
-  width: 90%;
-  margin: 40px auto;
-  background: white;
-  border-radius: 15px;
-  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
-  padding: 40px;
-  text-align: center;
-}
-
-.login-header {
-  margin-bottom: 30px;
-}
-
-.login-header i {
-  font-size: 48px;
-  color: #667eea;
-  margin-bottom: 15px;
-}
-
-.login-header h1 {
-  font-size: 24px;
-  color: #333;
-  margin-bottom: 8px;
-}
-
-.login-header p {
-  color: #666;
-  font-size: 14px;
-}
-
-.login-form {
-  text-align: left;
-}
-
-.form-group {
-  margin-bottom: 20px;
-}
-
-.form-group label {
-  display: block;
-  margin-bottom: 8px;
-  font-weight: 500;
-  color: #333;
-}
-
-.form-group input, .form-group select {
-  width: 100%;
-  padding: 12px 15px;
-  border: 2px solid #e1e5e9;
-  border-radius: 8px;
-  font-size: 14px;
-  transition: border-color 0.3s ease;
-}
-
-.form-group input:focus, .form-group select:focus {
-  outline: none;
-  border-color: #667eea;
-}
-
-.btn-primary {
-  width: 100%;
-  padding: 12px;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  color: white;
-  border: none;
-  border-radius: 8px;
-  font-size: 16px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.3s ease;
-}
-
-.btn-primary:hover {
-  transform: translateY(-2px);
-}
-.btn-primary:disabled {
-  background: #ccc;
-  cursor: not-allowed;
-}
-
-.demo-info {
-  margin-top: 20px;
-  padding: 15px;
-  background: #f8f9fa;
-  border-radius: 8px;
-  font-size: 12px;
-  color: #666;
-}
-
-.demo-info p {
-  margin-bottom: 5px;
-}
-
-.error-message {
-  color: #dc3545;
-  margin-top: 15px;
-  font-weight: 500;
-}
-.message {
-  color: #28a745; /* 绿色成功提示 */
-  margin-top: 15px;
-  font-weight: 500;
-}
+/* 保持你原有的样式 */
+.login-page-wrapper { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); min-height: 100vh; display: flex; align-items: center; justify-content: center; }
+.login-container { max-width: 400px; width: 90%; margin: 20px auto; background: white; border-radius: 15px; padding: 40px; text-align: center; }
+.login-header { margin-bottom: 20px; }
+.login-header i { font-size: 48px; color: #667eea; }
+.form-group { margin-bottom: 15px; text-align: left; }
+.form-group label { display: block; margin-bottom: 5px; font-weight: 600; }
+.form-group input, select { width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 5px; box-sizing: border-box;}
+.btn-primary { width: 100%; padding: 12px; background: #667eea; color: white; border: none; border-radius: 5px; cursor: pointer; margin-top: 10px; }
+.error-message { color: #dc3545; margin-top: 15px; }
+.message { color: #28a745; margin-top: 15px; }
 </style>
