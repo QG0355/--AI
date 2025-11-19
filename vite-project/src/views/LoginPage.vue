@@ -1,211 +1,274 @@
 <template>
-  <div class="login-page-wrapper">
-    <div class="login-container">
-      
+  <div class="login-container">
+    <div class="login-box">
       <div class="login-header">
-        <i class="fas fa-tools"></i>
-        <h1>IT 报修速响应平台</h1>
-        <p>快速响应，专业服务</p>
+        <div class="logo-icon">
+          <i class="fas fa-tools"></i>
+        </div>
+        <h2>IT 运维报修平台</h2>
+        <p>Enterprise IT Service Desk</p>
       </div>
 
-      <form id="loginForm" class="login-form" @submit.prevent="handleLogin">
-        <div class="form-group">
-          <label for="username">工号</label>
-          <input type="text" id="username" v-model="username" required>
+      <form @submit.prevent="handleLogin">
+        <div class="input-group">
+          <label>账号 / User ID</label>
+          <div class="input-wrapper">
+            <i class="fas fa-user"></i>
+            <input type="text" v-model="username" placeholder="请输入工号/学号" required>
+          </div>
         </div>
-        <div class="form-group">
-          <label for="password">密码</label>
-          <input type="password" id="password" v-model="password" required>
+
+        <div class="input-group">
+          <label>密码 / Password</label>
+          <div class="input-wrapper">
+            <i class="fas fa-lock"></i>
+            <input type="password" v-model="password" placeholder="请输入密码" required>
+          </div>
         </div>
-        
-        <button type="submit" class="btn-primary" :disabled="loading">
-          {{ loading ? '登录中...' : '登录' }}
+
+        <button type="submit" class="btn-login" :disabled="loading">
+          {{ loading ? '正在登录...' : '登 录' }}
         </button>
+
+        <div class="login-footer">
+          <span>还没有账号？</span>
+          <RouterLink to="/register">注册新用户</RouterLink>
+        </div>
       </form>
 
-      <div class="demo-info">
-        <p><strong>演示账号：</strong></p>
-        <p>员工：emp001 / 123456</p>
-        <p>IT管理员：admin / admin123</p>
+      <div v-if="error" class="error-banner">
+        <i class="fas fa-exclamation-circle"></i> {{ error }}
       </div>
-      
-      <div class="register-link">
-        <p>还没有账号? 
-          <RouterLink to="/register">立即注册</RouterLink>
-        </p>
-      </div>
-
-      <p v-if="error" class="error-message">{{ error }}</p>
-
-    </div> </div> </template>
+    </div>
+  </div>
+</template>
 
 <script setup>
-// 1. 导入 Vue、Pinia 和 Vue Router
 import { ref } from 'vue'
 import { useAuthStore } from '@/stores/auth'
 import { useRouter } from 'vue-router'
 
-// 2. 创建响应式变量
-// ref() 用于创建可以被 Vue 跟踪的变量
-const username = ref('emp001') // 默认填入演示账号
-const password = ref('123456') // 默认填入演示密码
+// 1. 【关键修改】默认值改为空字符串，不再自动填充
+const username = ref('')
+const password = ref('')
+
 const loading = ref(false)
 const error = ref(null)
-
-// 3. 获取 Pinia store 和 router 实例
 const authStore = useAuthStore()
-const router = useRouter() // router 实例用于页面跳转
+const router = useRouter()
 
-// 4. 定义登录方法
 async function handleLogin() {
   loading.value = true
   error.value = null
   
-  // 5. 【⭐ 这就是数据交互！⭐】
-  // 调用 Pinia (authStore) 里的 login action
-  // authStore 会在内部调用 Axios 向 Django 发送请求
+  // 调用 Pinia 的登录 Action
   const success = await authStore.login(username.value, password.value)
   
   loading.value = false
   
-  // 6. 根据交互结果，进行页面跳转
   if (success) {
-    // 登录成功！跳转到仪表板
+    // 登录成功，跳转到仪表盘
     router.push('/dashboard')
   } else {
-    // 登录失败！显示错误
-    error.value = '用户名或密码错误！'
+    // 登录失败，显示错误
+    error.value = '账号或密码错误，请检查输入'
   }
 }
 </script>
 
 <style scoped>
-/* scoped 关键字意味着这些样式只对
-  当前这个 .vue 文件生效，不会污染全局 
-*/
+/* --- 全新设计的 UI --- */
 
-/* 从 styles.css 复制过来的登录页面样式 */
-.login-page-wrapper {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+.login-container {
   min-height: 100vh;
+  /* 背景图：深蓝科技感背景 */
+  background-image: url('https://images.unsplash.com/photo-1518770660439-4636190af475?q=80&w=2070&auto=format&fit=crop');
+  background-size: cover;
+  background-position: center;
   display: flex;
   align-items: center;
   justify-content: center;
+  position: relative;
 }
 
-.login-container {
-  max-width: 400px;
-  width: 90%;
-  margin: 40px auto;
-  background: white;
-  border-radius: 15px;
-  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+/* 加一层半透明深色遮罩，让文字更清晰 */
+.login-container::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(15, 23, 42, 0.75); /* 深邃的蓝黑色遮罩 */
+  backdrop-filter: blur(3px);
+}
+
+.login-box {
+  position: relative; /* 确保在遮罩之上 */
+  width: 100%;
+  max-width: 420px;
+  background: rgba(255, 255, 255, 0.95); /* 几乎不透明的白色卡片 */
+  border-radius: 16px;
   padding: 40px;
-  text-align: center;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5); /* 更有质感的阴影 */
+  animation: slideUp 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes slideUp {
+  from { transform: translateY(30px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
 }
 
 .login-header {
-  margin-bottom: 30px;
+  text-align: center;
+  margin-bottom: 35px;
 }
 
-.login-header i {
-  font-size: 48px;
-  color: #667eea;
-  margin-bottom: 15px;
+.logo-icon {
+  width: 64px;
+  height: 64px;
+  background: linear-gradient(135deg, #3b82f6, #2563eb);
+  color: white;
+  border-radius: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 28px;
+  margin: 0 auto 15px;
+  box-shadow: 0 10px 15px -3px rgba(59, 130, 246, 0.4);
+  transform: rotate(-5deg);
 }
 
-.login-header h1 {
-  font-size: 24px;
-  color: #333;
-  margin-bottom: 8px;
+.login-header h2 {
+  color: #1e293b;
+  font-size: 26px;
+  font-weight: 800;
+  margin-bottom: 5px;
+  letter-spacing: -0.5px;
 }
 
 .login-header p {
-  color: #666;
-  font-size: 14px;
+  color: #64748b;
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  font-weight: 600;
 }
 
-.login-form {
-  text-align: left;
+.input-group {
+  margin-bottom: 24px;
 }
 
-.form-group {
-  margin-bottom: 20px;
-}
-
-.form-group label {
+.input-group label {
   display: block;
   margin-bottom: 8px;
-  font-weight: 500;
-  color: #333;
-}
-
-.form-group input {
-  width: 100%;
-  padding: 12px 15px;
-  border: 2px solid #e1e5e9;
-  border-radius: 8px;
+  color: #475569;
   font-size: 14px;
-  transition: border-color 0.3s ease;
+  font-weight: 600;
 }
 
-.form-group input:focus {
-  outline: none;
-  border-color: #667eea;
+.input-wrapper {
+  position: relative;
 }
 
-.btn-primary {
+.input-wrapper i {
+  position: absolute;
+  left: 16px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: #94a3b8;
+  font-size: 16px;
+  transition: color 0.3s;
+}
+
+.input-wrapper input {
   width: 100%;
-  padding: 12px;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  padding: 14px 16px 14px 48px; /* 留出图标位置 */
+  border: 2px solid #e2e8f0;
+  border-radius: 10px;
+  font-size: 15px;
+  color: #334155;
+  background: #f8fafc;
+  transition: all 0.3s;
+  box-sizing: border-box;
+}
+
+/* 输入框聚焦时的效果 */
+.input-wrapper input:focus {
+  border-color: #3b82f6;
+  background: white;
+  outline: none;
+  box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.1);
+}
+
+.input-wrapper input:focus + i {
+  color: #3b82f6; /* 图标变色 */
+}
+
+.btn-login {
+  width: 100%;
+  padding: 14px;
+  background: linear-gradient(to right, #3b82f6, #2563eb);
   color: white;
   border: none;
-  border-radius: 8px;
+  border-radius: 10px;
   font-size: 16px;
-  font-weight: 500;
+  font-weight: 600;
   cursor: pointer;
-  transition: all 0.3s ease;
+  transition: transform 0.2s, box-shadow 0.2s;
+  margin-top: 10px;
+  box-shadow: 0 4px 6px -1px rgba(59, 130, 246, 0.5);
 }
 
-.btn-primary:hover {
-  transform: translateY(-2px);
+.btn-login:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 10px 15px -3px rgba(59, 130, 246, 0.6);
 }
-.btn-primary:disabled {
-  background: #ccc;
+
+.btn-login:active {
+  transform: translateY(0);
+}
+
+.btn-login:disabled {
+  background: #cbd5e1;
+  transform: none;
+  box-shadow: none;
   cursor: not-allowed;
 }
 
-.demo-info {
-  margin-top: 20px;
-  padding: 15px;
-  background: #f8f9fa;
-  border-radius: 8px;
-  font-size: 12px;
-  color: #666;
-}
-
-.demo-info p {
-  margin-bottom: 5px;
-}
-
-.error-message {
-  color: #dc3545;
-  margin-top: 15px;
-  font-weight: 500;
-}
-.register-link {
-  margin-top: 20px;
+.login-footer {
+  margin-top: 25px;
+  text-align: center;
   font-size: 14px;
+  color: #64748b;
 }
 
-.register-link a {
-  color: #667eea;
+.login-footer a {
+  color: #2563eb;
   text-decoration: none;
-  font-weight: 500;
+  font-weight: 700;
+  margin-left: 5px;
 }
 
-.register-link a:hover {
+.login-footer a:hover {
   text-decoration: underline;
 }
 
+.error-banner {
+  margin-top: 20px;
+  padding: 12px;
+  background: #fee2e2;
+  color: #b91c1c;
+  border-radius: 8px;
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  animation: shake 0.5s cubic-bezier(.36,.07,.19,.97) both;
+}
+
+@keyframes shake {
+  10%, 90% { transform: translate3d(-1px, 0, 0); }
+  20%, 80% { transform: translate3d(2px, 0, 0); }
+  30%, 50%, 70% { transform: translate3d(-4px, 0, 0); }
+  40%, 60% { transform: translate3d(4px, 0, 0); }
+}
 </style>

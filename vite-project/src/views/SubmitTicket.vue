@@ -28,7 +28,10 @@
         <div class="form-group">
           <label>类型</label>
           <select v-model="ticket.category">
-            <option>硬件故障</option><option>网络连接</option><option>其他</option>
+            <option>硬件故障</option>
+            <option>网络连接</option>
+            <option>其他</option>
+            
           </select>
         </div>
         <div class="form-group">
