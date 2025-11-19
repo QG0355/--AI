@@ -1,0 +1,12 @@
+# it_backend/urls.py
+
+from django.contrib import admin
+from django.urls import path, include  # 1. 确保导入了 include
+
+urlpatterns = [
+    path('admin/', admin.site.urls),
+
+    # 2. 确保这里写的是 'tickets_api.urls'
+    #    千万不要写成 'it_backend.urls'！
+    path('api/', include('tickets_api.urls')),
+]
