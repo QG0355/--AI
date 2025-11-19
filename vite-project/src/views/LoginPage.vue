@@ -61,17 +61,18 @@ async function handleLogin() {
   loading.value = true
   error.value = null
   
-  // 调用 Pinia 的登录 Action
-  const success = await authStore.login(username.value, password.value)
+  // 1. 调用 Pinia 的登录，并接收返回值 (现在它返回的是一个对象)
+  const result = await authStore.login(username.value, password.value)
   
   loading.value = false
   
-  if (success) {
-    // 登录成功，跳转到仪表盘
+  // 2. 判断结果
+  if (result.success) {
     router.push('/dashboard')
   } else {
-    // 登录失败，显示错误
-    error.value = '账号或密码错误，请检查输入'
+    // 3. 【关键】直接显示后端返回的详细错误！
+    // 比如："Unable to log in with provided credentials." 或者 "账号不存在"
+    error.value = result.message 
   }
 }
 </script>

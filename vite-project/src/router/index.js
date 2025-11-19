@@ -14,6 +14,7 @@ const routes = [
     component: () => import('@/layouts/MainLayout.vue'),
     meta: { requiresAuth: true },
     children: [
+      { path: '', redirect: 'dashboard' }, // 默认跳到 dashboard
       { path: 'dashboard', component: () => import('@/views/Dashboard.vue') },
       { path: 'submit', component: () => import('@/views/SubmitTicket.vue') },
       { path: 'tickets', component: () => import('@/views/MyTickets.vue') },
@@ -28,30 +29,34 @@ const routes = [
 ]
 
 const router = createRouter({ history: createWebHistory(), routes })
+
 router.beforeEach(async (to, from, next) => {
   const authStore = useAuthStore()
-  
-  // 1. 定义完全公开的页面 (不需要登录也能看)
-  //    现在把 '/' (主页) 也加进去了
-  const publicPages = ['/login', '/register', '/'] 
-  
+  const publicPages = ['/login', '/register']
   const authRequired = !publicPages.includes(to.path)
 
-  // 2. 如果去受保护页面且没登录 -> 去登录页
+  // 1. 没登录？直接踢回登录页 (除非是去注册)
   if (authRequired && !authStore.isLoggedIn) {
     return next('/login')
   }
 
-  // 3. 已登录但没绑定身份 -> 强制去绑定页 (除了注销操作)
+  // 2. 登录了但没绑定？ -> 关进绑定页监狱
+  // (注意：要排除注销操作，否则退出都退不掉)
   if (authStore.isLoggedIn && !authStore.currentUser?.is_identity_bound && to.path !== '/bind') {
     return next('/bind')
   }
 
-  // 4. 绑定好了又想回绑定页 -> 去主页
+  // 3. 绑定过了还想去绑定页？ -> 赶回主页
   if (authStore.isLoggedIn && authStore.currentUser?.is_identity_bound && to.path === '/bind') {
     return next('/dashboard')
+  }
+  
+  // 4. 已登录且访问登录页 -> 赶回主页
+  if (authStore.isLoggedIn && publicPages.includes(to.path)) {
+      return next('/')
   }
 
   next()
 })
+
 export default router

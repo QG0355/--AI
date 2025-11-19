@@ -7,24 +7,21 @@ class UserSerializer(serializers.ModelSerializer):
         fields = ['id', 'username', 'name', 'role', 'identity_id', 'is_identity_bound', 'extra_permissions']
 
 class RegisterSerializer(serializers.ModelSerializer):
-    # 确保这三个字段必填
-    name = serializers.CharField(required=True)
-    role = serializers.CharField(required=True)
-    identity_id = serializers.CharField(required=True)
-
+    # 注册只需要这三个字段
     class Meta:
         model = CustomUser
-        fields = ['username', 'password', 'name', 'role', 'identity_id']
+        fields = ['username', 'password']
         extra_kwargs = {'password': {'write_only': True}}
 
     def create(self, validated_data):
+        # 创建一个“空白”用户：没有名字，没有角色，没有身份ID，未绑定
         user = CustomUser.objects.create_user(
             username=validated_data['username'],
             password=validated_data['password'],
-            name=validated_data['name'],
-            role=validated_data['role'],           # 保存前端传来的角色
-            identity_id=validated_data['identity_id'], # 保存前端传来的学号
-            is_identity_bound=True                 # 注册即视为已绑定
+            name='',             # 暂时为空
+            role='student',      # 默认先给个学生角色，绑定时再改
+            identity_id=None,    # 暂时为空
+            is_identity_bound=False # 关键！标记为未绑定
         )
         return user
 
