@@ -25,10 +25,11 @@
         <div class="form-group">
           <label>我是：</label>
           <select v-model="form.role" required>
-            <option value="student">在校学生</option>
+           <option value="student">在校学生</option>
             <option value="teacher">教职工</option>
             <option value="dorm_manager">宿管人员</option>
             <option value="building_manager">教学楼管理员</option>
+            <option value="repair_admin">报修管理员 (审核)</option> <option value="maintenance">维修人员</option> 
           </select>
         </div>
 

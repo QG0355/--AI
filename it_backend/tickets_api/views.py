@@ -8,6 +8,8 @@ from rest_framework.decorators import api_view, permission_classes
 from .models import CustomUser, Ticket, OARequest
 from .serializers import UserSerializer, RegisterSerializer, TicketSerializer, OARequestSerializer
 
+from rest_framework.decorators import action
+from django.db.models import Q
 
 # 1. 登录
 class CustomAuthToken(ObtainAuthToken):
@@ -57,13 +59,86 @@ class TicketViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        # 简单逻辑：大家都能看自己的，管理员看所有
-        if self.request.user.role == 'admin':
+        user = self.request.user
+
+        # 1. 学生：只能看自己提交的
+        if user.role == 'student':
+            return Ticket.objects.filter(submitter=user)
+
+        # 2. 宿管：看自己提交的 + 待宿管审核的(pending_dorm)
+        elif user.role == 'dorm_manager':
+            return Ticket.objects.filter(Q(submitter=user) | Q(status='pending_dorm'))
+
+        # 3. 报修管理员：看所有 + 待派单的(pending_dispatch)
+        elif user.role == 'repair_admin' or user.role == 'admin':
             return Ticket.objects.all()
-        return Ticket.objects.filter(submitter=self.request.user)
+
+        # 4. 维修人员：看自己提交的 + 指派给自己的
+        elif user.role == 'maintenance':
+            return Ticket.objects.filter(Q(submitter=user) | Q(assignee=user))
+
+        # 5. 老师/教学楼管理员：目前只能看自己提交的
+        else:
+            return Ticket.objects.filter(submitter=user)
 
     def perform_create(self, serializer):
-        serializer.save(submitter=self.request.user)
+        user = self.request.user
+        # 初始状态逻辑：
+        # 如果是学生 -> 状态设为 'pending_dorm' (待宿管审)
+        # 如果是老师/宿管/管理员 -> 状态设为 'pending_dispatch' (直接待派单)
+        initial_status = 'pending_dispatch'
+        if user.role == 'student':
+            initial_status = 'pending_dorm'
+
+        serializer.save(submitter=user, status=initial_status)
+
+    # 增加一个动作：处理工单 (审核/派单/完成/评价)
+    # URL: /api/tickets/<id>/handle/
+    @action(detail=True, methods=['post'])
+    def handle(self, request, pk=None):
+        ticket = self.get_object()
+        user = request.user
+        action_type = request.data.get('type')  # approve, assign, finish, evaluate
+
+        # 1. 宿管审核 (学生提交的单子)
+        if action_type == 'approve_dorm' and user.role == 'dorm_manager':
+            ticket.status = 'pending_dispatch'  # 转给报修管理员
+            ticket.save()
+            return Response({'status': '审核通过，已转交报修管理员'})
+
+        # 2. 报修管理员派单
+        if action_type == 'assign' and user.role in ['repair_admin', 'admin']:
+            worker_id = request.data.get('worker_id')
+            try:
+                worker = CustomUser.objects.get(pk=worker_id, role='maintenance')
+                ticket.assignee = worker
+                ticket.status = 'repairing'
+                ticket.save()
+                return Response({'status': f'已指派给 {worker.name}'})
+            except CustomUser.DoesNotExist:
+                return Response({'error': '维修人员不存在'}, status=400)
+
+        # 3. 报修管理员/宿管 驳回 (认为是瞎报修)
+        if action_type == 'reject' and user.role in ['repair_admin', 'admin', 'dorm_manager']:
+            ticket.status = 'rejected'
+            ticket.save()
+            return Response({'status': '已驳回'})
+
+        # 4. 维修人员完成维修
+        if action_type == 'finish' and user.role == 'maintenance':
+            ticket.status = 'finished'
+            ticket.save()
+            return Response({'status': '维修完成，等待学生评价'})
+
+        # 5. 学生评价
+        if action_type == 'evaluate' and user == ticket.submitter:
+            ticket.evaluation = request.data.get('comment')
+            ticket.rating = request.data.get('rating', 5)
+            ticket.status = 'closed'
+            ticket.save()
+            return Response({'status': '评价成功，工单结束'})
+
+        return Response({'error': '无权操作或状态不正确'}, status=403)
 
 
 # 5. OA 审批 API
