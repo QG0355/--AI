@@ -40,31 +40,43 @@ class OARequest(models.Model):
 
 
 class Ticket(models.Model):
-    CATEGORY_CHOICES = [('其他', '其他问题'),
-        # 宿舍区
+    CATEGORY_CHOICES = [
+        # 1. 宿舍区
         ('水电设施', '水电设施 (厕所/洗手池/水管/宿舍灯泡)'),
-        ('家具门窗', '家具门窗 (床/柜子/桌子)'),
+        ('家具门窗', '家具门窗 (床/柜子/门锁/桌子)'),
         ('生活电器', '生活电器 (空调/热水器/风扇)'),
-        # 教学楼
+
+        # 2. 教学楼
         ('多媒体设备', '多媒体设备 (投影仪/音响/麦克风/电脑)'),
         ('教学设施', '教学设施 (黑板/桌椅/讲台)'),
         ('照明设施', '照明/电路'),
-        # 办公室
+
+        # 3. 办公室
         ('办公设备', '办公设备 (打印机/碎纸机/复印机)'),
         ('电脑网络', '电脑/网络 (系统/软件/断网)'),
-        # 公共区
-        ('宿舍公共设施', '公共设施 (走廊灯/走廊饮水机/消防栓/宿舍楼道网络设备)'),
-        ('系统权限', '系统权限'),  ('其他', '其他')]
+
+
+
+        # 4. 公共区
+        ('宿舍设施', '宿舍设施 (走廊灯/走廊饮水机/消防栓/宿舍楼道网络设备)'),
+
+        # 5. 旧选项 (保留着防止报错)
+        ('硬件故障', '硬件故障'),
+        ('软件问题', '软件问题'),
+        ('网络连接', '网络连接'),
+        ('系统权限', '系统权限'),
+        ('其他', '其他')
+    ]
+
     PRIORITY_CHOICES = [('低', '低'), ('中', '中'), ('高', '高'), ('紧急', '紧急')]
 
-    # --- ⭐ 核心升级：状态流转链 ⭐ ---
     STATUS_CHOICES = [
-        ('pending_dorm', '待宿管审核'),  # 学生提交 -> 宿管看
-        ('pending_dispatch', '待派单审核'),  # 宿管通过/老师提交 -> 报修管理员看
-        ('repairing', '维修中'),  # 管理员派单 -> 维修人员看
-        ('finished', '维修完成(待评价)'),  # 维修人员点完成 -> 学生看
-        ('closed', '已结单'),  # 学生评价完 -> 结束
-        ('rejected', '已驳回')  # 审核不通过
+        ('pending_dorm', '待宿管审核'),
+        ('pending_dispatch', '待派单审核'),
+        ('repairing', '维修中'),
+        ('finished', '维修完成(待评价)'),
+        ('closed', '已结单'),
+        ('rejected', '已驳回')
     ]
 
     title = models.CharField(max_length=200)
@@ -78,7 +90,6 @@ class Ticket(models.Model):
     # 关联用户
     submitter = models.ForeignKey(CustomUser, on_delete=models.CASCADE, related_name='submitted_tickets',
                                   verbose_name="提交人")
-    # 维修人员 (由报修管理员指派)
     assignee = models.ForeignKey(CustomUser, on_delete=models.SET_NULL, null=True, blank=True,
                                  related_name='assigned_tickets', verbose_name="维修人员")
 
@@ -91,7 +102,6 @@ class Ticket(models.Model):
 
     def __str__(self):
         return self.title
-
 
 class Comment(models.Model):
     # (Comment 模型保持不变)
