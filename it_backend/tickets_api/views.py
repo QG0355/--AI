@@ -52,7 +52,12 @@ def bind_identity(request):
 
     return Response({"detail": "绑定成功", "user": UserSerializer(user).data})
 
-
+    def create(self, request, *args, **kwargs):
+        print("前端发来的数据:", request.data)  # 在黑色终端窗口看这个！
+        serializer = self.get_serializer(data=request.data)
+        if not serializer.is_valid():
+            print("校验失败原因:", serializer.errors)  # 重点看这个！
+        return super().create(request, *args, **kwargs)
 # 4. 报修单 API
 class TicketViewSet(viewsets.ModelViewSet):
     serializer_class = TicketSerializer

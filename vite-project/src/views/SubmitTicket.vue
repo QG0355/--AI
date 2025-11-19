@@ -10,7 +10,7 @@
           <option value="dorm">学生宿舍</option>
           <option value="office">教师办公室</option>
           <option value="teaching_building">教学楼</option>
-          <option value="public">公共区域</option>
+          <option value="public">宿舍公共区域</option>
         </select>
         
         <div v-if="status === 'denied'" class="alert error">
