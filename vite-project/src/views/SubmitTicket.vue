@@ -11,7 +11,7 @@
           </div>
           <div class="form-group half">
             <label>故障位置</label>
-            <input v-model="form.location" placeholder="例如：教学楼A栋 302室" required>
+            <input v-model="form.location" placeholder="例如：宿舍楼6栋302宿舍" required>
           </div>
         </div>
 
