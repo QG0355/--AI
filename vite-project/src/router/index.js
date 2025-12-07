@@ -10,13 +10,14 @@ const routes = [
     path: '/', 
     component: () => import('@/layouts/MainLayout.vue'),
     children: [
-      // ⭐ 核心修改：path: '' (主页) 对应 SubmitTicket (报修页)
-      { path: '', component: () => import('@/views/SubmitTicket.vue') },
+      // 首页是 Dashboard (欢迎页)
+      { path: '', component: () => import('@/views/Dashboard.vue') },
       
-      // 其他页面
+      // ⚠️ 关键：这里必须有 'submit'，而且对应的组件必须存在！
+      { path: 'submit', component: () => import('@/views/SubmitTicket.vue') },
+      
       { path: 'tickets', component: () => import('@/views/MyTickets.vue') },
       { path: 'workplace', component: () => import('@/views/Workplace.vue') },
-      { path: 'dashboard', component: () => import('@/views/Dashboard.vue') }, // 仪表盘作为单独页面
       { path: 'admin', component: () => import('@/views/AdminDashboard.vue') }
     ]
   }

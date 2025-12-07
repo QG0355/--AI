@@ -5,6 +5,8 @@ from rest_framework import generics, viewsets, status
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.decorators import api_view, permission_classes, action
 from django.db.models import Q
+from django.shortcuts import render, redirect, get_object_or_404
+from .models import Order
 
 from .models import CustomUser, Ticket
 from .serializers import UserSerializer, RegisterSerializer, TicketSerializer
@@ -97,3 +99,22 @@ class TicketViewSet(viewsets.ModelViewSet):
             return Response({'status': 'Evaluated'})
 
         return Response({'error': 'Unknown action'}, status=400)
+
+
+def change_status(request, order_id):
+    order = get_object_or_404(Order, id=order_id)
+
+    # 简单的状态流转逻辑
+    if order.status == 0:  # 待接单 -> 维修中
+        order.status = 1
+    elif order.status == 1:  # 维修中 -> 已完成
+        order.status = 2
+
+    order.save()
+
+    # 关键修改：返回 JSON 给 Vue，告诉它最新的状态是多少
+    return JsonResponse({
+        'code': 200,
+        'msg': '状态更新成功',
+        'new_status': order.status
+    })

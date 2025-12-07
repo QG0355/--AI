@@ -69,3 +69,14 @@ class Comment(models.Model):
     user = models.ForeignKey(CustomUser, on_delete=models.CASCADE)
     content = models.TextField()
     time = models.DateTimeField(auto_now_add=True)
+
+
+class Order(models.Model):
+
+    STATUS_CHOICES = (
+        (0, '待接单'),  # 刚提交也是这个状态
+        (1, '维修中'),  # 维修人员点击“接单”后
+        (2, '已完成'),  # 修好后
+    )
+
+    status = models.IntegerField(verbose_name="当前状态", choices=STATUS_CHOICES, default=0)
