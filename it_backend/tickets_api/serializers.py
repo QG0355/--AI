@@ -9,37 +9,29 @@ class UserSerializer(serializers.ModelSerializer):
 
 
 class RegisterSerializer(serializers.ModelSerializer):
-    # 1. 删掉了之前那三行 required=True 的强制要求
-    # 现在这些字段都是“可选”的了
+    # 1. 删除了所有的 required=True，变成可选
 
     class Meta:
         model = CustomUser
-        # 依然接收这些字段，但不再强制校验它们必须存在
         fields = ['username', 'password', 'name', 'role', 'identity_id']
         extra_kwargs = {'password': {'write_only': True}}
 
     def create(self, validated_data):
-        # 2. 获取数据时给“默认值”
-        # 如果前端没传 role，默认就是 'student'
+        # 2. 如果前端没传，给默认值
         role = validated_data.get('role', 'student')
+        identity_id = validated_data.get('identity_id', None)
 
-        # 如果前端没传 identity_id，或者是空字符串，就设为 None (避免空字符串占位导致唯一性冲突)
-        identity_id = validated_data.get('identity_id')
-        if identity_id == '':
-            identity_id = None
-
-        # 自动识别超管权限 (如果选了admin)
+        # 3. 自动识别超管
         is_staff = (role == 'admin')
         is_superuser = (role == 'admin')
 
-        # 3. 创建用户
         user = CustomUser.objects.create_user(
             username=validated_data['username'],
             password=validated_data['password'],
-            name=validated_data.get('name', ''),  # 没填名字就是空
+            name=validated_data.get('name', ''),
             role=role,
             identity_id=identity_id,
-            is_identity_bound=True,  # 既然简化了，就默认视为“已绑定”，避免登录后跳死循环
+            is_identity_bound=True,  # 注册即绑定，防止前端逻辑死循环
             is_staff=is_staff,
             is_superuser=is_superuser
         )
@@ -48,6 +40,8 @@ class RegisterSerializer(serializers.ModelSerializer):
 
 class TicketSerializer(serializers.ModelSerializer):
     submitter_name = serializers.ReadOnlyField(source='submitter.name')
+    # 强制只读，防止前端传错报 400
+    status = serializers.CharField(read_only=True)
 
     class Meta:
         model = Ticket
