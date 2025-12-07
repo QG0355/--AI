@@ -60,7 +60,10 @@ const auth = useAuthStore()
 const evalInputs = ref({}) // 临时存储评价内容
 
 onMounted(() => {
-  ticketStore.fetchTickets()
+  
+  if (auth.isLoggedIn) {
+    ticketStore.fetchTickets()
+  }
 })
 
 // 撤销

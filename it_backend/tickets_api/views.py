@@ -33,7 +33,7 @@ class RegisterView(generics.CreateAPIView):
 def bind_identity(request):
     user = request.user
     if user.is_identity_bound:
-        return Response({"detail": "Identity already bound"}, status=400)
+        return Response({"detail": "您已经绑定过身份，无需重复操作", "user": UserSerializer(user).data}, status=200)
 
     user.role = request.data.get('role')
     user.identity_id = request.data.get('identity_id')
