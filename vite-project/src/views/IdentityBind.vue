@@ -55,7 +55,10 @@ async function handleBind() {
     localStorage.setItem('user', JSON.stringify(res.data.user))
     
     alert("绑定成功！")
-    router.push('/') // 回到主页
+    const role = res.data.user?.role
+    if (role === 'auditor') router.push('/approval')
+    else if (['maintenance', 'repair_admin', 'admin'].includes(role)) router.push('/workplace')
+    else router.push('/')
   } catch (e) {
     alert("绑定失败：" + (e.response?.data?.detail || "未知错误"))
   } finally {

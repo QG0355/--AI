@@ -2,15 +2,15 @@
   <div class="ai-page">
     <div class="ai-card">
       <div class="ai-header">
-        <h2>智能报修助手</h2>
-        <p>通过自然语言提问，快速了解报修流程和常见问题处理建议</p>
+        <h2>AI 报修助手</h2>
+        <p>用于了解报修流程与注意事项，结果仅供参考</p>
       </div>
 
       <div class="warning-banner">
         <i class="fas fa-exclamation-triangle"></i>
         <div class="warning-text">
-          <p>AI 仅供参考，请以实际为主，不能盲目相信。</p>
-          <p>涉及设备安全、维修操作等问题，请以学校正式通知和专业维修人员意见为准。</p>
+          <p>重要提示：AI 提供的建议请仅供参考，以实际为准，不能盲目操作。</p>
+          <p>涉及宿舍水电、用电安全、维修操作等，请勿自行检修，请通过平台提交报修等待处理。</p>
         </div>
       </div>
 
@@ -24,6 +24,9 @@
           >
             <div class="avatar" v-if="m.role === 'assistant'">
               <i class="fas fa-robot"></i>
+            </div>
+            <div class="avatar notice" v-else-if="m.role === 'notice'">
+              <i class="fas fa-exclamation-triangle"></i>
             </div>
             <div class="avatar user" v-else>
               <i class="fas fa-user"></i>
@@ -51,10 +54,9 @@
           <textarea
             v-model="input"
             rows="3"
-            placeholder="请输入你想咨询的内容，例如：空调不制冷应该怎么报修？"
+            placeholder="请输入你想咨询的内容，例如：空调不制冷怎么报修？（请勿咨询/尝试任何带电操作）"
           ></textarea>
           <div class="input-actions">
-            <span class="hint">本功能面向已登录学生使用，问题越具体，AI 解答越有参考价值。</span>
             <button type="submit" :disabled="loading || !input.trim()">
               {{ loading ? '正在思考...' : '发送' }}
             </button>
@@ -76,7 +78,12 @@ const messages = ref([
   {
     role: 'assistant',
     content:
-      '你好，我是校园报修智能助手，可以帮助你了解报修流程和常见处理建议。请注意：AI 仅供参考，请以学校实际流程和老师、维修人员的意见为准，不能盲目相信。'
+      '你好，我是 AI 报修助手，可以帮你了解报修流程与注意事项。'
+  },
+  {
+    role: 'notice',
+    content:
+      '重要提示：AI 提供的建议请仅供参考，以实际为准，不能盲目操作。涉及宿舍水电、用电安全、维修操作等，请勿自行检修，请通过平台提交报修等待处理。'
   }
 ])
 
@@ -85,48 +92,64 @@ const loading = ref(false)
 const error = ref('')
 const messageList = ref(null)
 
+// 1. 定义滚动函数
 function scrollToBottom() {
   nextTick(() => {
-    if (messageList.value) {
-      messageList.value.scrollTop = messageList.value.scrollHeight
+    const el = document.querySelector('.messages')
+    if (el) {
+      el.scrollTop = el.scrollHeight
     }
   })
 }
 
+// 2. 发送逻辑
 async function handleSend() {
-  const content = input.value.trim()
-  if (!content) return
-
+  if (!input.value.trim()) return
+  
   if (!auth.isLoggedIn) {
-    error.value = '使用智能对话前请先登录系统。'
+    alert('请先登录系统')
+    return
+  }
+  
+  // 权限拦截：只有学生可以使用 AI
+  if (auth.currentUser?.role !== 'student') {
+    alert('AI 助手目前仅面向学生开放。\n管理人员请使用管理后台功能。')
     return
   }
 
-  error.value = ''
+  const content = input.value
+  // 先把用户说的话上屏
   messages.value.push({ role: 'user', content })
   input.value = ''
+  error.value = ''
   scrollToBottom()
 
   loading.value = true
+  
   try {
-    const res = await axios.post(
-      'http://127.0.0.1:8000/api/ai-chat/',
-      { message: content },
-      {
-        headers: {
-          Authorization: `Token ${auth.token}`
-        }
-      }
-    )
-    const reply = res.data.reply || '当前暂时无法获取回答，请稍后再试。'
-    messages.value.push({ role: 'assistant', content: reply })
-    scrollToBottom()
+    // 调用后端接口
+    const res = await axios.post('http://127.0.0.1:8000/api/ai-chat/', {
+      content: content // 注意字段名是 content
+    }, {
+      headers: { Authorization: `Token ${auth.token}` }
+    })
+
+    const answer = res.data.answer
+    const warning = res.data.warning
+    
+    // AI 回复上屏
+    messages.value.push({ role: 'assistant', content: answer })
+    // 如果有警告信息（比如“仅供参考”），也显示出来
+    if (warning) {
+       messages.value.push({ role: 'notice', content: warning })
+    }
+    
   } catch (e) {
-    error.value =
-      e.response?.data?.detail ||
-      '对话暂时不可用，请检查后端服务或稍后再试。'
+    console.error(e)
+    messages.value.push({ role: 'error', content: 'AI 暂时无法回应，请稍后再试。' })
   } finally {
     loading.value = false
+    scrollToBottom()
   }
 }
 </script>
@@ -214,6 +237,10 @@ async function handleSend() {
   flex-direction: row-reverse;
 }
 
+.message-row.notice {
+  flex-direction: row;
+}
+
 .avatar {
   width: 32px;
   height: 32px;
@@ -230,6 +257,10 @@ async function handleSend() {
   background: linear-gradient(135deg, #667eea, #764ba2);
 }
 
+.avatar.notice {
+  background: linear-gradient(135deg, #ffb74d, #ff8a65);
+}
+
 .bubble {
   max-width: 70%;
   padding: 8px 12px;
@@ -242,6 +273,13 @@ async function handleSend() {
   background: #ffffff;
   border: 1px solid #f1d1dd;
   color: #60394c;
+}
+
+.notice .bubble {
+  background: #fff6e6;
+  border: 1px solid #ffd08a;
+  color: #8a4b00;
+  font-weight: 700;
 }
 
 .user .bubble {
@@ -357,4 +395,3 @@ async function handleSend() {
   }
 }
 </style>
-

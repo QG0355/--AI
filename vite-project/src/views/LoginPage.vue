@@ -32,7 +32,7 @@
 
         <div class="login-footer">
           <span>还没有账号？</span>
-          <RouterLink to="/register">注册新用户</RouterLink>
+          <a @click.prevent="$router.push('/register')" class="link-btn">注册新用户</a>
         </div>
       </form>
 
@@ -72,7 +72,9 @@ async function handleLogin() {
       return
     }
 
-    if (['maintenance', 'repair_admin', 'admin', 'auditor'].includes(role)) {
+    if (role === 'auditor') {
+      router.push('/approval')
+    } else if (['maintenance', 'repair_admin', 'admin'].includes(role)) {
       router.push('/workplace')
     } else {
       router.push('/')
@@ -86,14 +88,11 @@ async function handleLogin() {
 <style scoped>
 .login-container {
   min-height: 100vh;
-  /* ⭐ 核心修改：使用 CSS 线性渐变作为背景 */
-  /* 左上角 #1e3c72 (深蓝)，右下角 #2a5298 (稍亮的蓝) */
   background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
-  
   display: flex;
   align-items: center;
   justify-content: center;
-  /* 之前的 position: relative 和伪元素遮罩都不需要了，因为没有图片要遮 */
+  padding: 20px;
 }
 
 .login-box {
@@ -102,7 +101,6 @@ async function handleLogin() {
   background: rgba(255, 255, 255, 0.95);
   border-radius: 16px;
   padding: 40px;
-  /* 给盒子加一点深色阴影，让它在渐变背景上浮起来 */
   box-shadow: 0 15px 35px rgba(0, 0, 0, 0.2); 
   animation: slideUp 0.6s cubic-bezier(0.16, 1, 0.3, 1);
 }
@@ -115,6 +113,9 @@ async function handleLogin() {
 .login-header {
   text-align: center;
   margin-bottom: 35px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
 }
 
 .logo-icon {
@@ -127,7 +128,7 @@ async function handleLogin() {
   align-items: center;
   justify-content: center;
   font-size: 28px;
-  margin: 0 auto 15px;
+  margin-bottom: 15px;
   box-shadow: 0 10px 15px -3px rgba(59, 130, 246, 0.4);
   transform: rotate(-5deg);
 }
@@ -189,7 +190,6 @@ async function handleLogin() {
 .input-wrapper input:focus {
   border-color: #3b82f6;
   background: white;
-  outline: none;
   box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.1);
 }
 
@@ -208,23 +208,16 @@ async function handleLogin() {
   font-weight: 600;
   cursor: pointer;
   transition: transform 0.2s, box-shadow 0.2s;
-  margin-top: 10px;
-  box-shadow: 0 4px 6px -1px rgba(59, 130, 246, 0.5);
+  box-shadow: 0 4px 6px -1px rgba(59, 130, 246, 0.3);
 }
 
-.btn-login:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 10px 15px -3px rgba(59, 130, 246, 0.6);
-}
-
-.btn-login:active {
-  transform: translateY(0);
+.btn-login:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 15px -3px rgba(59, 130, 246, 0.4);
 }
 
 .btn-login:disabled {
-  background: #cbd5e1;
-  transform: none;
-  box-shadow: none;
+  opacity: 0.7;
   cursor: not-allowed;
 }
 
@@ -235,35 +228,53 @@ async function handleLogin() {
   color: #64748b;
 }
 
-.login-footer a {
-  color: #2563eb;
+.link-btn {
+  color: #3b82f6;
+  font-weight: 600;
+  cursor: pointer;
   text-decoration: none;
-  font-weight: 700;
-  margin-left: 5px;
+  transition: color 0.2s;
 }
 
-.login-footer a:hover {
+.link-btn:hover {
+  color: #1d4ed8;
   text-decoration: underline;
 }
 
 .error-banner {
   margin-top: 20px;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  color: #ef4444;
   padding: 12px;
-  background: #fee2e2;
-  color: #b91c1c;
   border-radius: 8px;
   font-size: 14px;
   display: flex;
   align-items: center;
-  justify-content: center;
   gap: 8px;
-  animation: shake 0.5s cubic-bezier(.36,.07,.19,.97) both;
+  animation: shake 0.4s ease-in-out;
 }
 
 @keyframes shake {
-  10%, 90% { transform: translate3d(-1px, 0, 0); }
-  20%, 80% { transform: translate3d(2px, 0, 0); }
-  30%, 50%, 70% { transform: translate3d(-4px, 0, 0); }
-  40%, 60% { transform: translate3d(4px, 0, 0); }
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-5px); }
+  75% { transform: translateX(5px); }
+}
+
+/* Mobile Adaptation */
+@media (max-width: 480px) {
+  .login-box {
+    padding: 30px 20px;
+  }
+  
+  .login-header h2 {
+    font-size: 22px;
+  }
+  
+  .logo-icon {
+    width: 56px;
+    height: 56px;
+    font-size: 24px;
+  }
 }
 </style>

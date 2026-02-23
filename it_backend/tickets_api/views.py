@@ -8,9 +8,24 @@ from django.db.models import Q
 from django.shortcuts import render, redirect, get_object_or_404
 from .models import Order, StudentStar, StudentProfile, MaintenanceProfile, AuditorProfile
 from rest_framework import filters
+import os
+import json
+import re
+from urllib.request import Request, urlopen
+from urllib.error import HTTPError, URLError
 
 from .models import CustomUser, Ticket
 from .serializers import UserSerializer, RegisterSerializer, TicketSerializer, StudentStarSerializer
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_current_user(request):
+    """
+    获取当前登录用户的信息
+    """
+    user = request.user
+    return Response(UserSerializer(user).data)
 
 
 # 1. Login View
@@ -88,11 +103,27 @@ class TicketViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['post'])
     def handle(self, request, pk=None):
         ticket = self.get_object()
+        user = request.user
         action_type = request.data.get('type')
+
+        # 权限控制：学生不能接单、派单、或完成维修
+        if user.role == 'student':
+            # 学生只能做“评价”或“取消工单”（如果允许的话），不能做 assign/finish
+            # 这里先全部拦截，只允许后续加 evaluate
+            if action_type in ['assign', 'finish', 'dispatch']:
+                return Response({'detail': '学生无权执行此操作'}, status=status.HTTP_403_FORBIDDEN)
 
         # Dispatch (Assign)
         if action_type == 'assign':
+            # 只有管理员、审核员可以派单；维修工可以抢单（如果允许自己给自己派）
+            if user.role not in ['admin', 'auditor', 'maintenance']:
+                 return Response({'detail': '无权派单'}, status=status.HTTP_403_FORBIDDEN)
+            
             worker_id = request.data.get('worker_id')
+            # 如果是维修工抢单，worker_id 应该是自己
+            if user.role == 'maintenance':
+                worker_id = user.id
+
             try:
                 worker = CustomUser.objects.get(pk=worker_id)
                 ticket.assignee = worker
@@ -104,6 +135,13 @@ class TicketViewSet(viewsets.ModelViewSet):
 
         # Finish Repair
         if action_type == 'finish':
+            # 只有维修工（且是当前工单的处理人）或管理员可以点击完成
+            if user.role == 'maintenance' and ticket.assignee != user:
+                return Response({'detail': '只能完成指派给自己的工单'}, status=status.HTTP_403_FORBIDDEN)
+            
+            if user.role not in ['admin', 'maintenance']:
+                return Response({'detail': '无权完成工单'}, status=status.HTTP_403_FORBIDDEN)
+
             ticket.status = 'finished'
             ticket.save()
             return Response({'status': 'Repair Finished'})
@@ -137,6 +175,8 @@ class StudentStarViewSet(viewsets.ReadOnlyModelViewSet):
     permission_classes = [AllowAny]
 
 
+import ssl
+
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def ai_chat(request):
@@ -144,8 +184,160 @@ def ai_chat(request):
     content = request.data.get('message', '').strip()
     if not content:
         return Response({"detail": "问题内容不能为空"}, status=status.HTTP_400_BAD_REQUEST)
-    reply = f"您好，{user.name or user.username}。根据您提供的描述“{content}”，建议您先确认设备电源、线路和使用环境是否正常，如有安全隐患请第一时间联系现场老师或后勤老师进行处理。AI 对话仅供参考，请以学校实际报修流程和专业维修人员意见为准，不能盲目相信。"
-    return Response({"reply": reply})
+
+    def _mask_pii(text: str) -> str:
+        text = re.sub(r'\b1\d{10}\b', '[已脱敏手机号]', text)
+        text = re.sub(r'[\w\.-]+@[\w\.-]+\.\w+', '[已脱敏邮箱]', text)
+        text = re.sub(r'\b\d{6,}\b', '[已脱敏数字]', text)
+        text = re.sub(r'[A-Za-z0-9_\-]{24,}', '[已脱敏标识]', text)
+        return text
+
+    api_key = os.environ.get('AI_API_KEY') or os.environ.get('OPENAI_API_KEY') or "sk-yejrmdhdkioqibkiangxahwhzbdxkccajddgyoplwqxyobte"
+    base_url = (os.environ.get('AI_BASE_URL') or 'https://api.siliconflow.cn/v1').rstrip('/')
+    model = os.environ.get('AI_MODEL') or 'deepseek-ai/DeepSeek-V3'
+    timeout = float(os.environ.get('AI_TIMEOUT') or 20)
+
+    normalized = content.lower()
+    category = "其他"
+    if any(k in normalized for k in ["wifi", "wi-fi", "网络", "上网", "断网", "路由", "宽带"]):
+        category = "网络连接"
+    elif any(k in normalized for k in ["水", "漏水", "水龙头", "下水", "电", "灯", "跳闸", "插座", "电闸", "开关"]):
+        category = "水电问题"
+    elif any(k in normalized for k in ["空调", "冰箱", "洗衣机", "热水器", "风扇", "设备", "电器"]):
+        category = "设备故障"
+    elif any(k in normalized for k in ["柜", "衣柜", "桌", "椅", "床"]):
+        category = "柜子损坏"
+    elif any(k in normalized for k in ["门", "窗", "锁", "玻璃"]):
+        category = "门窗损坏"
+
+    name = user.name or user.username
+    base = (
+        f"您好，{name}。\n"
+        f"我理解你遇到的问题是：{content}\n\n"
+        f"建议（参考）：\n"
+    )
+
+    steps = []
+    questions = []
+
+    if category == "水电问题":
+        steps = [
+            "1）如有异味/冒烟/漏电/插座或电器发热/频繁跳闸：请立即停止使用，远离危险区域，不要触碰裸露线路或电器内部。",
+            "2）不要自行拆插座、开电箱、测电或接线；这些属于高风险操作。",
+            "3）请在平台【提交报修】选择“水电问题”，尽量描述现象（例如：哪盏灯、哪个插座、是否全宿舍断电），并上传现场照片。",
+            "4）如果是漏水：尽量关闭可见阀门/水源（在确保安全前提下），并在平台备注“是否持续渗漏、是否影响邻室”。",
+        ]
+        questions = [
+            "是否只影响你宿舍，还是同楼层/整层也有类似情况？",
+            "是否出现跳闸、异味、火花、发热等明显危险信号？",
+            "发生位置在哪里（楼栋-房间-具体点位）？",
+        ]
+    elif category == "网络连接":
+        steps = [
+            "1）先判断范围：是仅你设备不能上网，还是同宿舍同学也都不行。",
+            "2）可尝试非破坏性操作：重新连接 Wi-Fi、关闭再打开飞行模式、重启设备网络。",
+            "3）请在平台【提交报修】选择“网络连接”，补充错误提示/截图、发生时间段、影响范围。",
+        ]
+        questions = [
+            "是连不上 Wi‑Fi，还是能连上但无法上网？",
+            "手机/电脑是否都一样，还是某一台设备的问题？",
+            "是否有错误提示截图（例如认证失败、无法获取IP等）？",
+        ]
+    elif category == "设备故障":
+        steps = [
+            "1）请不要自行拆机、拆插头或对电器内部进行任何检修。",
+            "2）若设备显示错误代码/报警灯，请拍照记录；如果有异味/冒烟/异常发热，请立即停止使用。",
+            "3）请在平台【提交报修】选择“设备故障”，填写设备名称、故障现象、出现时间与影响程度。",
+        ]
+        questions = [
+            "设备是什么（空调/洗衣机/热水器等），型号或张贴编号有吗？",
+            "故障是间歇还是持续，是否可复现？",
+            "是否出现异味、冒烟、漏水、异常声音？",
+        ]
+    elif category == "门窗损坏":
+        steps = [
+            "1）请不要强行撬/砸/硬拧，以免造成二次损坏或夹伤。",
+            "2）如涉及安全（门锁失效、玻璃破裂等），请保持现场安全并避免接触锋利边缘。",
+            "3）请在平台【提交报修】选择“门窗损坏”，拍照并说明损坏位置与是否影响出入/通风/安全。",
+        ]
+        questions = [
+            "是门锁问题还是门窗框/合页/玻璃问题？",
+            "是否影响正常出入或存在割伤风险？",
+        ]
+    elif category == "柜子损坏":
+        steps = [
+            "1）不要强行拉拽/继续使用卡住的抽屉或柜门，以免夹伤或扩大损坏。",
+            "2）请在平台【提交报修】选择“柜子损坏”，拍照并描述损坏部位（铰链/滑轨/门板等）。",
+        ]
+        questions = [
+            "是柜门关不上、抽屉卡住，还是结构松动/断裂？",
+            "是否影响正常使用或存在夹手风险？",
+        ]
+    else:
+        steps = [
+            f"1）你可以在平台【提交报修】选择最接近的类别（建议：{category}），填写地点、联系方式与现象描述。",
+            "2）不要自行进行拆装、带电检修或任何高风险操作。",
+            "3）建议附上照片/视频与发生时间，便于快速定位。",
+        ]
+        questions = [
+            "问题具体发生在什么位置（楼栋-房间-点位）？",
+            "是否影响安全或正常生活（例如漏水、跳闸、异味等）？",
+        ]
+
+    answer = base + "\n".join(steps)
+    if questions:
+        answer += "\n\n为了更准确一些，你可以补充：\n" + "\n".join([f"- {q}" for q in questions])
+    answer += f"\n\n建议报修类别：{category}"
+
+    warning = "重要提示：AI 提供的建议请仅供参考，以实际为准，不能盲目操作。"
+    if api_key:
+        outbound_content = _mask_pii(content)
+        system_prompt = (
+            "你是校园报修AI助手。请用中文回答，回答要保守、谨慎、以安全为先。"
+            "你只能提供报修流程、信息收集建议与风险提示，不能提供任何带电检修、拆装、测电等操作指导。"
+            "遇到宿舍水电、安全风险、冒烟、漏电、跳闸等情况，必须提醒用户停止操作并通过平台提交报修等待处理。"
+            "不要编造事实或承诺。回答末尾不要重复免责声明，免责声明由前端单独展示。"
+        )
+        payload = {
+            "model": model,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": outbound_content},
+            ],
+            "temperature": 0.2,
+        }
+        try:
+            # DEBUG: 打印正在调用的 URL（方便用户排查）
+            print(f"[AI] Calling: {base_url}/chat/completions")
+            
+            # 创建忽略 SSL 验证的 context
+            ctx = ssl.create_default_context()
+            ctx.check_hostname = False
+            ctx.verify_mode = ssl.CERT_NONE
+            
+            req = Request(
+                f"{base_url}/chat/completions",
+                data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json",
+                },
+                method="POST",
+            )
+            # 增加超时时间到 30s，因为 DeepSeek V3 可能比较慢
+            with urlopen(req, context=ctx, timeout=30) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+            msg = (((data.get("choices") or [{}])[0].get("message") or {}).get("content") or "").strip()
+            if msg:
+                return Response({"answer": msg, "warning": warning})
+        except Exception as e:
+            # DEBUG: 打印错误原因
+            print(f"[AI] Error: {e}")
+            # 如果 AI 调用失败，把错误信息也拼接到 warning 里，方便前端看到
+            warning += f" (Debug: AI 调用失败 - {str(e)})"
+            pass
+
+    return Response({"answer": answer, "warning": warning})
 
 
 def change_status(request, order_id):

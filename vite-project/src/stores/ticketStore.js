@@ -7,36 +7,13 @@ const API_URL = 'http://127.0.0.1:8000/api'
 
 export const useTicketStore = defineStore('ticket', {
   state: () => ({
-    tickets: [], // 存放报修单列表
+    tickets: [],
     loading: false
   }),
   
   actions: {
-    // 1. 获取报修单列表
-    async fetchTickets() {
-      const authStore = useAuthStore() // 获取当前登录用户信息
-      
-      // 如果没登录，直接不发请求，防止报错
-      if (!authStore.token) return 
-
-      this.loading = true
-      try {
-        // ⭐ 重点：发送请求时，手动把 Token 带在 headers 里
-        // 这样后端 request.user 才能识别出你是谁
-        const response = await axios.get(`${API_URL}/tickets/`, {
-          headers: { 
-            Authorization: `Token ${authStore.token}` 
-          }
-        })
-        
-        this.tickets = response.data
-      } catch (error) {
-        console.error('获取报修单失败:', error)
-      } finally {
-        this.loading = false
-      }
-    },
-      async fetchTickets(search = '') {
+    // 1. 获取报修单列表 (合并为一个 fetchTickets 函数)
+    async fetchTickets(search = '') {
       const authStore = useAuthStore()
       
       if (!authStore.token) return 
@@ -47,7 +24,6 @@ export const useTicketStore = defineStore('ticket', {
           headers: { 
             Authorization: `Token ${authStore.token}` 
           },
-          // 2. 👇 新增这个 params 配置，Axios 会自动拼接到 URL 后面
           params: {
             search: search
           }

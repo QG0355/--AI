@@ -24,9 +24,14 @@
                   <i :class="isStudent ? 'fas fa-wrench' : 'fas fa-briefcase'"></i>
                   {{ isStudent ? '我要报修' : '进入工作台' }}
                 </button>
-                <button class="btn-ghost" @click="goTickets">
+                <button class="btn-ghost" @click="goTickets" v-if="isStudent">
                   <i class="fas fa-list"></i>
                   我的报修记录
+                </button>
+                <!-- 如果是工作人员，显示进入审核中心按钮（仅限管理员/审核员） -->
+                <button class="btn-ghost" @click="$router.push('/approval')" v-if="['admin', 'auditor'].includes(authStore.currentUser?.role)">
+                  <i class="fas fa-check-square"></i>
+                  审核中心
                 </button>
               </template>
             </div>
@@ -62,7 +67,7 @@
         <p>根据不同角色，快速进入对应功能页面</p>
       </div>
       <div class="entry-grid">
-        <div class="entry-card" @click="goSubmit">
+        <div class="entry-card" @click="goSubmit" v-if="isStudent">
           <div class="entry-icon primary">
             <i class="fas fa-clipboard-list"></i>
           </div>
@@ -70,7 +75,7 @@
           <p>填写报修信息、上传故障描述，系统自动流转到相关老师和维修师傅。</p>
         </div>
 
-        <div class="entry-card" @click="goTickets">
+        <div class="entry-card" @click="goTickets" v-if="isStudent">
           <div class="entry-icon">
             <i class="fas fa-history"></i>
           </div>
@@ -78,12 +83,29 @@
           <p>随时查看每一条报修的受理进度、派单情况和最终处理结果。</p>
         </div>
 
-        <div class="entry-card" @click="goAi">
+        <div class="entry-card" @click="goAi" v-if="isStudent">
           <div class="entry-icon warning">
             <i class="fas fa-robot"></i>
           </div>
           <h3>AI 报修助手</h3>
           <p>用自然语言咨询报修流程和注意事项，结果仅供参考，请以实际为准。</p>
+        </div>
+        
+        <!-- 工作人员入口 -->
+        <div class="entry-card" @click="$router.push('/workplace')" v-if="!isStudent">
+          <div class="entry-icon primary">
+            <i class="fas fa-briefcase"></i>
+          </div>
+          <h3>工作台</h3>
+          <p>查看待办任务，进行接单、维修处理或任务管理。</p>
+        </div>
+        
+        <div class="entry-card" @click="$router.push('/approval')" v-if="['admin', 'auditor'].includes(authStore.currentUser?.role)">
+          <div class="entry-icon warning">
+            <i class="fas fa-check-circle"></i>
+          </div>
+          <h3>审核中心</h3>
+          <p>对新提交的报修申请进行审核、驳回或派单操作。</p>
         </div>
       </div>
     </section>
@@ -136,7 +158,25 @@ function handleMainBtnClick() {
       router.push('/submit')
     }
   } else {
+    // 老师/管理员/维修工 -> 工作台
     router.push('/workplace')
+  }
+}
+
+function goSubmit() {
+  if (!authStore.isLoggedIn) {
+    router.push('/login')
+    return
+  }
+  // 必须是学生才能去提交报修页面
+  if (authStore.currentUser?.role === 'student') {
+     router.push('/submit')
+  } else {
+     // 其他角色点提交报修，应该去哪里？或者提示不需要提交
+     // 暂时让他们去工作台看单子，或者提示
+     if (confirm('当前角色为工作人员，无法提交报修。\n是否进入工作台处理工单？')) {
+        router.push('/workplace')
+     }
   }
 }
 
@@ -154,14 +194,6 @@ function goTickets() {
     return
   }
   router.push('/tickets')
-}
-
-function goSubmit() {
-  if (!authStore.isLoggedIn) {
-    router.push('/login')
-    return
-  }
-  handleMainBtnClick()
 }
 
 function goAi() {

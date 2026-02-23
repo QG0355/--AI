@@ -62,6 +62,22 @@ export const useAuthStore = defineStore('auth', {
       this.token = null
       localStorage.removeItem('token')
       delete axios.defaults.headers.common['Authorization']
+    },
+
+    // 新增：初始化时获取用户信息
+    async fetchUser() {
+      if (!this.token) return
+      
+      try {
+        // 确保 header 里有 token
+        axios.defaults.headers.common['Authorization'] = `Token ${this.token}`
+        const response = await axios.get(`${API_URL}/me/`)
+        this.currentUser = response.data
+      } catch (error) {
+        console.error('获取用户信息失败:', error)
+        // 如果 token 失效，自动登出
+        this.logout()
+      }
     }
   }
 })

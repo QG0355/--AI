@@ -7,32 +7,45 @@
       </div>
       
       <div class="nav-menu" v-if="authStore.isLoggedIn">
-        <RouterLink to="/" class="nav-btn">
+        <!-- 仅学生可见 -->
+        <RouterLink v-if="authStore.currentUser?.role === 'student'" to="/" class="nav-btn">
           <i class="fas fa-plus-circle"></i> 提交报修
         </RouterLink>
-        <RouterLink to="/tickets" class="nav-btn">
+        <RouterLink v-if="authStore.currentUser?.role === 'student'" to="/tickets" class="nav-btn">
           <i class="fas fa-ticket-alt"></i> 我的报修
         </RouterLink>
-        <RouterLink to="/ai-chat" class="nav-btn">
+        <RouterLink v-if="authStore.currentUser?.role === 'student'" to="/ai-chat" class="nav-btn">
           <i class="fas fa-robot"></i> AI助手
         </RouterLink>
+
+        <!-- 维修人员/审核员/管理员可见 -->
         <RouterLink v-if="['maintenance', 'repair_admin', 'admin'].includes(authStore.currentUser?.role)" to="/workplace" class="nav-btn">
           <i class="fas fa-briefcase"></i> 工作台
         </RouterLink>
         <RouterLink v-if="['admin', 'auditor'].includes(authStore.currentUser?.role)" to="/approval" class="nav-btn">
           <i class="fas fa-check-square"></i> 审核中心
         </RouterLink>
+        
+        <!-- 管理员可见 -->
+        <RouterLink v-if="authStore.currentUser?.role === 'admin'" to="/admin" class="nav-btn">
+          <i class="fas fa-cogs"></i> 管理后台
+        </RouterLink>
       </div>
 
       <div class="nav-user">
         <template v-if="authStore.isLoggedIn">
-          <span id="userInfo">
-            <i class="fas fa-user-circle"></i> 
-            欢迎，{{ authStore.currentUser?.name || authStore.currentUser?.username || '用户' }}
-          </span>
-          <button class="btn-logout" @click="handleLogout">
-            <i class="fas fa-sign-out-alt"></i> 退出
-          </button>
+          <div class="user-info-group">
+            <span class="role-badge" :class="authStore.currentUser?.role">
+              {{ getRoleName(authStore.currentUser?.role) }}
+            </span>
+            <span id="userInfo">
+              <i class="fas fa-user-circle"></i> 
+              {{ authStore.currentUser?.name || authStore.currentUser?.username || '用户' }}
+            </span>
+            <button class="btn-logout" @click="handleLogout">
+              <i class="fas fa-sign-out-alt"></i> 退出
+            </button>
+          </div>
         </template>
 
         <template v-else>
@@ -56,6 +69,17 @@ import { useRouter } from 'vue-router'
 
 const authStore = useAuthStore()
 const router = useRouter()
+
+function getRoleName(role) {
+  const map = {
+    'student': '学生',
+    'admin': '管理员',
+    'maintenance': '维修师傅',
+    'auditor': '审核员',
+    'repair_admin': '维修主管'
+  }
+  return map[role] || '用户'
+}
 
 function handleLogout() {
   authStore.logout()
@@ -87,6 +111,11 @@ function handleLogout() {
 .nav-btn:hover, .nav-btn.router-link-active { background: #f0f2f5; color: #667eea; font-weight: 500; }
 
 .nav-user { display: flex; align-items: center; gap: 15px; font-size: 14px; }
+.user-info-group { display: flex; align-items: center; gap: 10px; }
+.role-badge { padding: 2px 6px; border-radius: 4px; font-size: 12px; color: white; background: #999; }
+.role-badge.student { background: #48bb78; }
+.role-badge.maintenance { background: #ed8936; }
+.role-badge.admin { background: #f56565; }
 .guest-actions { display: flex; gap: 10px; }
 
 .btn-login { color: #666; text-decoration: none; font-weight: 500; }
