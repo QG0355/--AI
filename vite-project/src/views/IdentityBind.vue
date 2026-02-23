@@ -12,8 +12,10 @@
         <div class="form-group">
           <label>我是：</label>
           <select v-model="form.role" required>
-          <option value="student">在校学生 (我是来报修的)</option>
-          <option value="maintenance">维修人员 (我是来修东西的)</option>
+          <option value="student">在校学生</option>
+          <option value="maintenance">维修人员</option>
+          <option value="auditor">审核员</option>
+          <option value="admin">系统管理员</option>
           </select>
         </div>
         <div class="form-group">
@@ -26,7 +28,6 @@
         </div>
         
         <button class="btn-primary" type="submit" :disabled="loading">确认绑定</button>
-        <button type="button" class="btn-text" @click="$router.push('/')">暂不绑定，返回首页</button>
       </form>
     </div>
   </div>

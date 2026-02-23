@@ -6,11 +6,11 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.decorators import api_view, permission_classes, action
 from django.db.models import Q
 from django.shortcuts import render, redirect, get_object_or_404
-from .models import Order
+from .models import Order, StudentStar, StudentProfile, MaintenanceProfile, AuditorProfile
 from rest_framework import filters
 
 from .models import CustomUser, Ticket
-from .serializers import UserSerializer, RegisterSerializer, TicketSerializer
+from .serializers import UserSerializer, RegisterSerializer, TicketSerializer, StudentStarSerializer
 
 
 # 1. Login View
@@ -38,11 +38,20 @@ def bind_identity(request):
     if user.is_identity_bound:
         return Response({"detail": "您已经绑定过身份，无需重复操作", "user": UserSerializer(user).data}, status=200)
 
-    user.role = request.data.get('role')
-    user.identity_id = request.data.get('identity_id')
+    role = request.data.get('role')
+    identity_id = request.data.get('identity_id')
+    user.role = role
+    user.identity_id = identity_id
     user.name = request.data.get('name')
     user.is_identity_bound = True
     user.save()
+
+    if role == 'student':
+        StudentProfile.objects.update_or_create(user=user, defaults={'student_id': identity_id})
+    elif role == 'maintenance':
+        MaintenanceProfile.objects.update_or_create(user=user, defaults={'worker_id': identity_id})
+    elif role in ['auditor', 'admin']:
+        AuditorProfile.objects.update_or_create(user=user, defaults={'auditor_id': identity_id})
 
     return Response({"detail": "Bind successful", "user": UserSerializer(user).data})
 
@@ -55,18 +64,25 @@ class TicketViewSet(viewsets.ModelViewSet):
     search_fields = ['title', 'description', 'location', 'id']
     def get_queryset(self):
         user = self.request.user
-        # Admins and Repair Admins see all tickets
-        if user.role in ['admin', 'repair_admin']:
-            return Ticket.objects.all()
-        # Maintenance workers see all tickets (simplified logic for internship)
-        if user.role == 'maintenance':
-            return Ticket.objects.all()
-        # Regular users (students/teachers) only see their own tickets
-        return Ticket.objects.filter(submitter=user)
+        qs = Ticket.objects.all()
+        # Admin 和 审核员 作为审核 / 管理角色，看到全部工单
+        if user.role in ['admin', 'auditor']:
+            pass
+        # 维修人员看到所有工单，便于抢单
+        elif user.role == 'maintenance':
+            pass
+        # 其他角色只看到自己提交的工单
+        else:
+            qs = qs.filter(submitter=user)
+
+        status_param = self.request.query_params.get('status')
+        if status_param:
+            qs = qs.filter(status=status_param)
+        return qs
 
     def perform_create(self, serializer):
-        # Automatically set status to 'pending_dispatch'
-        serializer.save(submitter=self.request.user, status='pending_dispatch')
+        # 新建工单默认进入“待审核员审核”状态
+        serializer.save(submitter=self.request.user, status='pending_dorm')
 
     # Ticket Handling Action (Assign, Finish, Evaluate)
     @action(detail=True, methods=['post'])
@@ -94,6 +110,42 @@ class TicketViewSet(viewsets.ModelViewSet):
 
 
         return Response({'error': 'Unknown action'}, status=400)
+
+    @action(detail=True, methods=['post'])
+    def review(self, request, pk=None):
+        ticket = self.get_object()
+        user = request.user
+        if user.role not in ['admin', 'auditor']:
+            return Response({'detail': '无权限执行审核操作'}, status=status.HTTP_403_FORBIDDEN)
+
+        decision = request.data.get('decision')
+        if decision == 'approve':
+            ticket.status = 'pending_dispatch'
+            ticket.save()
+            return Response({'status': 'Approved'})
+        if decision == 'reject':
+            ticket.status = 'rejected'
+            ticket.save()
+            return Response({'status': 'Rejected'})
+
+        return Response({'detail': '未知操作'}, status=status.HTTP_400_BAD_REQUEST)
+
+
+class StudentStarViewSet(viewsets.ReadOnlyModelViewSet):
+    queryset = StudentStar.objects.filter(is_active=True).order_by('sort_order', '-id')
+    serializer_class = StudentStarSerializer
+    permission_classes = [AllowAny]
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def ai_chat(request):
+    user = request.user
+    content = request.data.get('message', '').strip()
+    if not content:
+        return Response({"detail": "问题内容不能为空"}, status=status.HTTP_400_BAD_REQUEST)
+    reply = f"您好，{user.name or user.username}。根据您提供的描述“{content}”，建议您先确认设备电源、线路和使用环境是否正常，如有安全隐患请第一时间联系现场老师或后勤老师进行处理。AI 对话仅供参考，请以学校实际报修流程和专业维修人员意见为准，不能盲目相信。"
+    return Response({"reply": reply})
 
 
 def change_status(request, order_id):

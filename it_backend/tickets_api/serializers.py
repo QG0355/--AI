@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import CustomUser, Ticket
+from .models import CustomUser, Ticket, StudentStar
 
 
 class UserSerializer(serializers.ModelSerializer):
@@ -47,3 +47,9 @@ class TicketSerializer(serializers.ModelSerializer):
         model = Ticket
         fields = '__all__'
         read_only_fields = ['submitter', 'status', 'submitTime', 'updateTime']
+
+
+class StudentStarSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = StudentStar
+        fields = '__all__'

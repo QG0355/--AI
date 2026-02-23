@@ -6,7 +6,7 @@ class CustomUser(AbstractUser):
     IDENTITY_CHOICES = (
         ('student', '学生'),
         ('maintenance', '维修人员'),
-        ('dorm_manager', '宿管'),
+        ('auditor', '审核员'),
         ('admin', '超级管理员'),
     )
 
@@ -32,10 +32,10 @@ class Ticket(models.Model):
     PRIORITY_CHOICES = [('低', '低'), ('中', '中'), ('高', '高'), ('紧急', '紧急')]
 
     STATUS_CHOICES = [
-        # ⭐ 修改点1：文案改为 "正在处理"
-        ('pending_dispatch', '正在处理'),
+        ('pending_dorm', '待审核员审核'),
+        ('pending_dispatch', '待派单'),
         ('repairing', '维修中'),
-        ('finished', '维修完成'),
+        ('finished', '维修完成(待评价)'),
         ('closed', '已结单'),
         ('rejected', '已驳回')
     ]
@@ -43,7 +43,7 @@ class Ticket(models.Model):
     title = models.CharField(max_length=200)
     category = models.CharField(max_length=50, choices=CATEGORY_CHOICES)
     priority = models.CharField(max_length=10, choices=PRIORITY_CHOICES)
-    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending_dispatch')
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending_dorm')
     description = models.TextField(blank=True, null=True, verbose_name="故障描述")
 
     location = models.CharField(max_length=200, blank=True, null=True)
@@ -80,3 +80,41 @@ class Order(models.Model):
     )
 
     status = models.IntegerField(verbose_name="当前状态", choices=STATUS_CHOICES, default=0)
+
+
+class StudentStar(models.Model):
+    name = models.CharField(max_length=50, verbose_name="姓名")
+    major = models.CharField(max_length=100, blank=True, verbose_name="专业班级")
+    grade = models.CharField(max_length=50, blank=True, verbose_name="年级")
+    honor = models.CharField(max_length=200, blank=True, verbose_name="荣誉称号")
+    description = models.TextField(blank=True, verbose_name="事迹简介")
+    avatar_url = models.URLField(blank=True, verbose_name="头像地址")
+    sort_order = models.IntegerField(default=0, verbose_name="排序值")
+    is_active = models.BooleanField(default=True, verbose_name="是否展示")
+
+    def __str__(self):
+        return self.name
+
+
+class StudentProfile(models.Model):
+    user = models.OneToOneField(CustomUser, on_delete=models.CASCADE, related_name='student_profile')
+    student_id = models.CharField(max_length=50, unique=True, verbose_name="学号")
+
+    def __str__(self):
+        return self.student_id
+
+
+class MaintenanceProfile(models.Model):
+    user = models.OneToOneField(CustomUser, on_delete=models.CASCADE, related_name='maintenance_profile')
+    worker_id = models.CharField(max_length=50, unique=True, verbose_name="维修人员工号")
+
+    def __str__(self):
+        return self.worker_id
+
+
+class AuditorProfile(models.Model):
+    user = models.OneToOneField(CustomUser, on_delete=models.CASCADE, related_name='auditor_profile')
+    auditor_id = models.CharField(max_length=50, unique=True, verbose_name="审核员工号")
+
+    def __str__(self):
+        return self.auditor_id

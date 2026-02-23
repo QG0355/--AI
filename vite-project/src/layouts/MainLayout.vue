@@ -13,8 +13,14 @@
         <RouterLink to="/tickets" class="nav-btn">
           <i class="fas fa-ticket-alt"></i> 我的报修
         </RouterLink>
-        <RouterLink v-if="['maintenance', 'repair_admin', 'admin', 'dorm_manager'].includes(authStore.currentUser?.role)" to="/workplace" class="nav-btn">
+        <RouterLink to="/ai-chat" class="nav-btn">
+          <i class="fas fa-robot"></i> AI助手
+        </RouterLink>
+        <RouterLink v-if="['maintenance', 'repair_admin', 'admin'].includes(authStore.currentUser?.role)" to="/workplace" class="nav-btn">
           <i class="fas fa-briefcase"></i> 工作台
+        </RouterLink>
+        <RouterLink v-if="['admin', 'auditor'].includes(authStore.currentUser?.role)" to="/approval" class="nav-btn">
+          <i class="fas fa-check-square"></i> 审核中心
         </RouterLink>
       </div>
 

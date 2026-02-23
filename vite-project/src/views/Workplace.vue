@@ -5,6 +5,8 @@
       <p>欢迎回来，{{ auth.currentUser?.name || auth.currentUser?.username }}</p>
     </div>
 
+    <StudentStarCarousel />
+
     <div class="search-box">
       <input 
         v-model="searchText" 
@@ -55,6 +57,7 @@
 import { ref, onMounted, computed } from 'vue'
 import axios from 'axios'
 import { useAuthStore } from '@/stores/auth'
+import StudentStarCarousel from '@/components/StudentStarCarousel.vue'
 
 const auth = useAuthStore()
 const allTickets = ref([])
