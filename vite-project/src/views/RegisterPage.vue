@@ -55,6 +55,7 @@
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import axios from 'axios'
+import { apiUrl } from '@/config'
 
 const router = useRouter()
 const loading = ref(false)
@@ -77,7 +78,7 @@ async function handleRegister() {
 
   try {
     // 发送最简单的注册请求
-    await axios.post('http://127.0.0.1:8000/api/register/', {
+    await axios.post(apiUrl('register/'), {
       username: form.value.username,
       password: form.value.password
     })

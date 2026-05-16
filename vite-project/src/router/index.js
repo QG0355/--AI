@@ -19,6 +19,7 @@ const routes = [
       { path: 'tickets', component: () => import('@/views/MyTickets.vue') },
       { path: 'workplace', component: () => import('@/views/Workplace.vue') },
       { path: 'ai-chat', component: () => import('@/views/AiAssistant.vue') },
+      { path: 'profile', component: () => import('@/views/ProfilePage.vue') },
       { path: 'approval', component: () => import('@/views/OAApproval.vue') },
       { path: 'admin', component: () => import('@/views/AdminDashboard.vue') }
     ]

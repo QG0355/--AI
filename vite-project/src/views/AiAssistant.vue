@@ -4,6 +4,7 @@
       <div class="ai-header">
         <h2>AI 报修助手</h2>
         <p>用于了解报修流程与注意事项，结果仅供参考</p>
+        <p v-if="aiStatus" class="ai-status">{{ aiStatus }}</p>
       </div>
 
       <div class="warning-banner">
@@ -71,6 +72,7 @@
 import { ref, nextTick } from 'vue'
 import axios from 'axios'
 import { useAuthStore } from '@/stores/auth'
+import { apiUrl } from '@/config'
 
 const auth = useAuthStore()
 
@@ -90,9 +92,9 @@ const messages = ref([
 const input = ref('')
 const loading = ref(false)
 const error = ref('')
+const aiStatus = ref('')
 const messageList = ref(null)
 
-// 1. 定义滚动函数
 function scrollToBottom() {
   nextTick(() => {
     const el = document.querySelector('.messages')
@@ -102,7 +104,6 @@ function scrollToBottom() {
   })
 }
 
-// 2. 发送逻辑
 async function handleSend() {
   if (!input.value.trim()) return
   
@@ -111,14 +112,12 @@ async function handleSend() {
     return
   }
   
-  // 权限拦截：只有学生可以使用 AI
   if (auth.currentUser?.role !== 'student') {
     alert('AI 助手目前仅面向学生开放。\n管理人员请使用管理后台功能。')
     return
   }
 
   const content = input.value
-  // 先把用户说的话上屏
   messages.value.push({ role: 'user', content })
   input.value = ''
   error.value = ''
@@ -127,26 +126,34 @@ async function handleSend() {
   loading.value = true
   
   try {
-    // 调用后端接口
-    const res = await axios.post('http://127.0.0.1:8000/api/ai-chat/', {
-      content: content // 注意字段名是 content
+    const res = await axios.post(apiUrl('ai-chat/'), {
+      content: content
     }, {
       headers: { Authorization: `Token ${auth.token}` }
     })
 
     const answer = res.data.answer
     const warning = res.data.warning
+    const mode = res.data.mode
+    const aiEnabled = res.data.ai_enabled
     
-    // AI 回复上屏
     messages.value.push({ role: 'assistant', content: answer })
-    // 如果有警告信息（比如“仅供参考”），也显示出来
     if (warning) {
        messages.value.push({ role: 'notice', content: warning })
+    }
+    if (mode === 'llm') {
+      aiStatus.value = '已连接 AI'
+    } else if (mode === 'fallback' && aiEnabled) {
+      aiStatus.value = 'AI 暂时不可用，已切换为内置建议'
+    } else {
+      aiStatus.value = '未配置 AI Key，当前为内置建议'
     }
     
   } catch (e) {
     console.error(e)
-    messages.value.push({ role: 'error', content: 'AI 暂时无法回应，请稍后再试。' })
+    const msg = e?.response?.data?.detail || 'AI 暂时无法回应，请稍后再试。'
+    error.value = msg
+    messages.value.push({ role: 'notice', content: msg })
   } finally {
     loading.value = false
     scrollToBottom()
@@ -163,7 +170,7 @@ async function handleSend() {
 
 .ai-card {
   width: 100%;
-  max-width: 960px;
+  max-width: var(--app-page-max-width);
   background: #ffffff;
   border-radius: 20px;
   padding: 24px 26px 20px;
@@ -180,6 +187,12 @@ async function handleSend() {
   margin: 6px 0 14px;
   font-size: 13px;
   color: #8c435f;
+}
+
+.ai-status {
+  margin-top: -10px;
+  font-size: 12px;
+  color: #9a2f55;
 }
 
 .warning-banner {

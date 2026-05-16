@@ -1,11 +1,20 @@
 from rest_framework import serializers
-from .models import CustomUser, Ticket, StudentStar
+from .models import CustomUser, Ticket, StudentStar, TicketAttachment
 
 
 class UserSerializer(serializers.ModelSerializer):
+    avatar = serializers.SerializerMethodField()
+
     class Meta:
         model = CustomUser
-        fields = ['id', 'username', 'name', 'role', 'identity_id', 'is_identity_bound']
+        fields = ['id', 'username', 'name', 'gender', 'avatar_url', 'avatar', 'role', 'identity_id', 'is_identity_bound']
+
+    def get_avatar(self, obj):
+        request = self.context.get('request')
+        url = obj.avatar.url if getattr(obj, 'avatar', None) else ''
+        if request and url and not url.startswith('http'):
+            url = request.build_absolute_uri(url)
+        return url
 
 
 class RegisterSerializer(serializers.ModelSerializer):
@@ -39,14 +48,49 @@ class RegisterSerializer(serializers.ModelSerializer):
 
 
 class TicketSerializer(serializers.ModelSerializer):
-    submitter_name = serializers.ReadOnlyField(source='submitter.name')
+    submitter_name = serializers.SerializerMethodField()
     # 强制只读，防止前端传错报 400
     status = serializers.CharField(read_only=True)
+    rejected_reason = serializers.CharField(read_only=True)
+    attachments = serializers.SerializerMethodField()
 
     class Meta:
         model = Ticket
         fields = '__all__'
         read_only_fields = ['submitter', 'status', 'submitTime', 'updateTime']
+
+    def get_attachments(self, obj):
+        request = self.context.get('request')
+        items = []
+        for a in obj.attachments.all().order_by('id'):
+            url = a.file.url if a.file else ''
+            if request and url and not url.startswith('http'):
+                url = request.build_absolute_uri(url)
+            items.append({
+                'id': a.id,
+                'media_type': a.media_type,
+                'url': url,
+                'original_name': a.original_name,
+                'uploaded_at': a.uploaded_at
+            })
+        return items
+
+    def get_submitter_name(self, obj):
+        request = self.context.get('request')
+        if not request:
+            return getattr(obj.submitter, 'name', '') or getattr(obj.submitter, 'username', '') or ''
+        viewer = getattr(request, 'user', None)
+        if getattr(obj, 'is_anonymous', False) and getattr(obj, 'status', '') == 'closed':
+            if viewer and getattr(viewer, 'role', None) == 'maintenance':
+                return '匿名'
+        return getattr(obj.submitter, 'name', '') or getattr(obj.submitter, 'username', '') or ''
+
+
+class TicketAttachmentSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = TicketAttachment
+        fields = ['id', 'ticket', 'media_type', 'file', 'original_name', 'uploaded_at']
+        read_only_fields = ['id', 'ticket', 'media_type', 'original_name', 'uploaded_at']
 
 
 class StudentStarSerializer(serializers.ModelSerializer):

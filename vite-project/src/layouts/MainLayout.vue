@@ -7,7 +7,6 @@
       </div>
       
       <div class="nav-menu" v-if="authStore.isLoggedIn">
-        <!-- 仅学生可见 -->
         <RouterLink v-if="authStore.currentUser?.role === 'student'" to="/" class="nav-btn">
           <i class="fas fa-plus-circle"></i> 提交报修
         </RouterLink>
@@ -18,7 +17,6 @@
           <i class="fas fa-robot"></i> AI助手
         </RouterLink>
 
-        <!-- 维修人员/审核员/管理员可见 -->
         <RouterLink v-if="['maintenance', 'repair_admin', 'admin'].includes(authStore.currentUser?.role)" to="/workplace" class="nav-btn">
           <i class="fas fa-briefcase"></i> 工作台
         </RouterLink>
@@ -26,9 +24,12 @@
           <i class="fas fa-check-square"></i> 审核中心
         </RouterLink>
         
-        <!-- 管理员可见 -->
         <RouterLink v-if="authStore.currentUser?.role === 'admin'" to="/admin" class="nav-btn">
           <i class="fas fa-cogs"></i> 管理后台
+        </RouterLink>
+
+        <RouterLink to="/profile" class="nav-btn">
+          <i class="fas fa-id-badge"></i> 我的主页
         </RouterLink>
       </div>
 
@@ -88,7 +89,7 @@ function handleLogout() {
 </script>
 
 <style scoped>
-.main-page-wrapper { min-height: 100vh; background: #f5f7fa; }
+.main-page-wrapper { min-height: 100vh; background: #f6f3f7; }
 .navbar { 
   background: white; 
   box-shadow: 0 2px 10px rgba(0,0,0,0.05); 
@@ -116,12 +117,32 @@ function handleLogout() {
 .role-badge.student { background: #48bb78; }
 .role-badge.maintenance { background: #ed8936; }
 .role-badge.admin { background: #f56565; }
-.guest-actions { display: flex; gap: 10px; }
+.guest-actions { display: flex; gap: 10px; align-items: center; }
 
-.btn-login { color: #666; text-decoration: none; font-weight: 500; }
+.btn-login,
 .btn-register-nav { 
-  background: #667eea; color: white; padding: 6px 15px; border-radius: 20px; 
-  text-decoration: none; font-size: 13px; 
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 32px;
+  padding: 0 14px;
+  border-radius: 999px;
+  text-decoration: none;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.btn-login { 
+  background: white;
+  color: #667eea;
+  border: 1px solid rgba(102, 126, 234, 0.35);
+}
+
+.btn-register-nav { 
+  background: #667eea;
+  color: white;
+  border: 1px solid #667eea;
 }
 .btn-logout { 
   padding: 4px 8px; border: 1px solid #ddd; background: white; 

@@ -5,7 +5,7 @@
       <p>欢迎回来，{{ auth.currentUser?.name || auth.currentUser?.username }}</p>
     </div>
 
-    <StudentStarCarousel />
+    <StudentStarCarousel v-if="auth.currentUser?.role === 'maintenance'" />
 
     <div class="search-box">
       <input 
@@ -58,6 +58,7 @@ import { ref, onMounted, computed } from 'vue'
 import axios from 'axios'
 import { useAuthStore } from '@/stores/auth'
 import StudentStarCarousel from '@/components/StudentStarCarousel.vue'
+import { apiUrl } from '@/config'
 
 const auth = useAuthStore()
 const allTickets = ref([])
@@ -71,7 +72,7 @@ onMounted(() => { fetchData() })
 async function fetchData() {
   try {
     // 搜索参数传给后端
-    const res = await axios.get('http://127.0.0.1:8000/api/tickets/', {
+    const res = await axios.get(apiUrl('tickets/'), {
        headers: { Authorization: `Token ${auth.token}` },
        params: { search: searchText.value } 
     })
@@ -84,7 +85,7 @@ async function fetchData() {
 async function takeOrder(ticketId) {
   if(!confirm("确定接单？")) return;
   try {
-    await axios.post(`http://127.0.0.1:8000/api/tickets/${ticketId}/handle/`, {
+    await axios.post(apiUrl(`tickets/${ticketId}/handle/`), {
       type: 'assign', worker_id: auth.currentUser.id 
     }, { headers: { Authorization: `Token ${auth.token}` } })
     alert("接单成功！")
@@ -95,7 +96,7 @@ async function takeOrder(ticketId) {
 async function finishOrder(ticketId) {
   if(!confirm("确认完成？")) return;
   try {
-    await axios.post(`http://127.0.0.1:8000/api/tickets/${ticketId}/handle/`, {
+    await axios.post(apiUrl(`tickets/${ticketId}/handle/`), {
       type: 'finish'
     }, { headers: { Authorization: `Token ${auth.token}` } })
     alert("操作成功！")
@@ -109,7 +110,7 @@ function formatDate(iso) {
 </script>
 
 <style scoped>
-.workspace-container { max-width: 1200px; margin: 0 auto; padding: 20px; }
+.workspace-container { max-width: var(--app-page-max-width); margin: 0 auto; padding: 20px; }
 .page-header { margin-bottom: 30px; }
 .section { margin-bottom: 40px; }
 .section-title { font-size: 18px; border-left: 5px solid #667eea; padding-left: 10px; margin-bottom: 20px; color: #333; }

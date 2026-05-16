@@ -3,29 +3,58 @@ from rest_framework.authtoken.models import Token
 from rest_framework.response import Response
 from rest_framework import generics, viewsets, status
 from rest_framework.permissions import AllowAny, IsAuthenticated
-from rest_framework.decorators import api_view, permission_classes, action
-from django.db.models import Q
+from rest_framework.decorators import api_view, permission_classes, action, parser_classes
+from rest_framework.exceptions import PermissionDenied
+from rest_framework.parsers import MultiPartParser, FormParser
+from django.db.models import Q, Avg, Count
+from django.db import IntegrityError
 from django.shortcuts import render, redirect, get_object_or_404
 from .models import Order, StudentStar, StudentProfile, MaintenanceProfile, AuditorProfile
 from rest_framework import filters
 import os
 import json
 import re
+import logging
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError, URLError
 
 from .models import CustomUser, Ticket
 from .serializers import UserSerializer, RegisterSerializer, TicketSerializer, StudentStarSerializer
+from .models import TicketAttachment
 
 
-@api_view(['GET'])
+@api_view(['GET', 'PATCH'])
 @permission_classes([IsAuthenticated])
 def get_current_user(request):
-    """
-    获取当前登录用户的信息
-    """
     user = request.user
-    return Response(UserSerializer(user).data)
+    if request.method == 'PATCH':
+        updates = {}
+        if 'name' in request.data:
+            name = (request.data.get('name') or '').strip()
+            if not name:
+                return Response({"detail": "姓名不能为空"}, status=status.HTTP_400_BAD_REQUEST)
+            updates['name'] = name
+        if 'gender' in request.data:
+            gender = (request.data.get('gender') or '').strip()
+            if gender not in {'unknown', 'male', 'female'}:
+                return Response({"detail": "性别不合法"}, status=status.HTTP_400_BAD_REQUEST)
+            updates['gender'] = gender
+        if 'avatar_url' in request.data:
+            updates['avatar_url'] = (request.data.get('avatar_url') or '').strip()
+
+        if not updates:
+            return Response({"detail": "没有可更新的字段"}, status=status.HTTP_400_BAD_REQUEST)
+
+        for k, v in updates.items():
+            setattr(user, k, v)
+        user.save(update_fields=list(updates.keys()))
+    data = UserSerializer(user, context={'request': request}).data
+    if getattr(user, 'role', None) == 'maintenance':
+        agg = Ticket.objects.filter(assignee=user, status='closed').aggregate(avg=Avg('rating'), cnt=Count('id'))
+        avg = agg.get('avg')
+        data['maintenance_rating'] = float(avg) if avg is not None else None
+        data['maintenance_rating_count'] = int(agg.get('cnt') or 0)
+    return Response(data)
 
 
 # 1. Login View
@@ -35,7 +64,7 @@ class CustomAuthToken(ObtainAuthToken):
         serializer.is_valid(raise_exception=True)
         user = serializer.validated_data['user']
         token, created = Token.objects.get_or_create(user=user)
-        return Response({'token': token.key, 'user': UserSerializer(user).data})
+        return Response({'token': token.key, 'user': UserSerializer(user, context={'request': request}).data})
 
 
 # 2. Register View
@@ -51,15 +80,27 @@ class RegisterView(generics.CreateAPIView):
 def bind_identity(request):
     user = request.user
     if user.is_identity_bound:
-        return Response({"detail": "您已经绑定过身份，无需重复操作", "user": UserSerializer(user).data}, status=200)
+        return Response({"detail": "您已经绑定过身份，无需重复操作", "user": UserSerializer(user, context={'request': request}).data}, status=200)
 
-    role = request.data.get('role')
-    identity_id = request.data.get('identity_id')
+    role = (request.data.get('role') or '').strip()
+    identity_id = (request.data.get('identity_id') or '').strip()
+    name = (request.data.get('name') or '').strip()
+
+    if role not in {'student', 'maintenance', 'auditor', 'admin'}:
+        return Response({"detail": "角色不合法"}, status=status.HTTP_400_BAD_REQUEST)
+    if not identity_id:
+        return Response({"detail": "工号/学号不能为空"}, status=status.HTTP_400_BAD_REQUEST)
+    if CustomUser.objects.filter(identity_id=identity_id).exclude(pk=user.pk).exists():
+        return Response({"detail": "该工号/学号已被绑定，请确认后重试"}, status=status.HTTP_400_BAD_REQUEST)
+
     user.role = role
     user.identity_id = identity_id
-    user.name = request.data.get('name')
+    user.name = name
     user.is_identity_bound = True
-    user.save()
+    try:
+        user.save()
+    except IntegrityError:
+        return Response({"detail": "该工号/学号已被绑定，请确认后重试"}, status=status.HTTP_400_BAD_REQUEST)
 
     if role == 'student':
         StudentProfile.objects.update_or_create(user=user, defaults={'student_id': identity_id})
@@ -68,7 +109,38 @@ def bind_identity(request):
     elif role in ['auditor', 'admin']:
         AuditorProfile.objects.update_or_create(user=user, defaults={'auditor_id': identity_id})
 
-    return Response({"detail": "Bind successful", "user": UserSerializer(user).data})
+    return Response({"detail": "Bind successful", "user": UserSerializer(user, context={'request': request}).data})
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+@parser_classes([MultiPartParser, FormParser])
+def upload_my_avatar(request):
+    user = request.user
+    f = request.FILES.get('file') or request.FILES.get('avatar')
+    if not f:
+        return Response({"detail": "请上传头像文件(file)"}, status=status.HTTP_400_BAD_REQUEST)
+
+    content_type = (getattr(f, 'content_type', '') or '').lower()
+    allowed_types = {'image/jpeg', 'image/png', 'image/webp', 'image/gif'}
+    if content_type and content_type not in allowed_types:
+        return Response({"detail": "仅支持 JPG/PNG/WEBP/GIF 图片"}, status=status.HTTP_400_BAD_REQUEST)
+
+    if f.size and f.size > 5 * 1024 * 1024:
+        return Response({"detail": "图片大小不能超过 5MB"}, status=status.HTTP_400_BAD_REQUEST)
+
+    old_name = getattr(getattr(user, 'avatar', None), 'name', '') or ''
+    user.avatar = f
+    user.avatar_url = ''
+    user.save(update_fields=['avatar', 'avatar_url'])
+
+    if old_name and old_name != getattr(user.avatar, 'name', ''):
+        try:
+            user.avatar.storage.delete(old_name)
+        except Exception:
+            pass
+
+    return Response(UserSerializer(user, context={'request': request}).data)
 
 
 # 4. Ticket ViewSet
@@ -98,6 +170,18 @@ class TicketViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         # 新建工单默认进入“待审核员审核”状态
         serializer.save(submitter=self.request.user, status='pending_dorm')
+
+    def perform_update(self, serializer):
+        ticket = self.get_object()
+        user = self.request.user
+        if user.role == 'student':
+            if ticket.submitter != user:
+                raise PermissionDenied('只能修改自己提交的工单')
+            if ticket.status != 'rejected':
+                raise PermissionDenied('仅可修改被驳回的工单')
+            serializer.save(status='pending_dorm', rejected_reason=None)
+            return
+        serializer.save()
 
     # Ticket Handling Action (Assign, Finish, Evaluate)
     @action(detail=True, methods=['post'])
@@ -146,6 +230,29 @@ class TicketViewSet(viewsets.ModelViewSet):
             ticket.save()
             return Response({'status': 'Repair Finished'})
 
+        if action_type == 'evaluate':
+            if user.role != 'student':
+                return Response({'detail': '无权评价工单'}, status=status.HTTP_403_FORBIDDEN)
+            if ticket.submitter != user:
+                return Response({'detail': '只能评价自己提交的工单'}, status=status.HTTP_403_FORBIDDEN)
+            if ticket.status != 'finished':
+                return Response({'detail': '当前状态不可评价'}, status=status.HTTP_400_BAD_REQUEST)
+
+            try:
+                rating = int(request.data.get('rating') or 5)
+            except Exception:
+                return Response({'detail': '评分格式错误'}, status=status.HTTP_400_BAD_REQUEST)
+            if rating < 1 or rating > 5:
+                return Response({'detail': '评分需为 1-5'}, status=status.HTTP_400_BAD_REQUEST)
+
+            evaluation = (request.data.get('evaluation') or '').strip()
+            is_anonymous = bool(request.data.get('is_anonymous') or False)
+            ticket.rating = rating
+            ticket.evaluation = evaluation
+            ticket.is_anonymous = is_anonymous
+            ticket.status = 'closed'
+            ticket.save()
+            return Response({'status': 'Closed'})
 
         return Response({'error': 'Unknown action'}, status=400)
 
@@ -159,14 +266,85 @@ class TicketViewSet(viewsets.ModelViewSet):
         decision = request.data.get('decision')
         if decision == 'approve':
             ticket.status = 'pending_dispatch'
+            ticket.rejected_reason = None
             ticket.save()
             return Response({'status': 'Approved'})
         if decision == 'reject':
             ticket.status = 'rejected'
+            ticket.rejected_reason = (request.data.get('reason') or '').strip() or None
             ticket.save()
             return Response({'status': 'Rejected'})
 
         return Response({'detail': '未知操作'}, status=status.HTTP_400_BAD_REQUEST)
+
+    @action(detail=True, methods=['get', 'post'], url_path='attachments', parser_classes=[MultiPartParser, FormParser])
+    def attachments(self, request, pk=None):
+        import os
+        import imghdr
+
+        ticket = self.get_object()
+        user = request.user
+
+        if request.method == 'GET':
+            serializer = TicketSerializer(ticket, context={'request': request})
+            return Response(serializer.data.get('attachments', []))
+        
+        # 多文件上传走 multipart/form-data
+        # 在 DRF 中 parser 由 ViewSet 的 parser_classes 决定；这里按需懒加载处理
+
+        upload = request.FILES.get('file')
+        if not upload:
+            return Response({'detail': '缺少文件 file'}, status=status.HTTP_400_BAD_REQUEST)
+
+        if user.role == 'student' and ticket.submitter != user:
+            return Response({'detail': '无权上传附件'}, status=status.HTTP_403_FORBIDDEN)
+        if user.role not in ['student', 'admin', 'auditor']:
+            return Response({'detail': '无权上传附件'}, status=status.HTTP_403_FORBIDDEN)
+        if user.role == 'student' and ticket.status not in ['pending_dorm', 'rejected']:
+            return Response({'detail': '当前状态不可上传附件'}, status=status.HTTP_400_BAD_REQUEST)
+        if ticket.attachments.count() >= 6:
+            return Response({'detail': '附件数量已达上限'}, status=status.HTTP_400_BAD_REQUEST)
+
+        max_image = 5 * 1024 * 1024
+        max_video = 50 * 1024 * 1024
+        name = upload.name or ''
+        ext = os.path.splitext(name)[1].lower()
+        ct = (getattr(upload, 'content_type', '') or '').lower()
+
+        image_exts = {'.jpg', '.jpeg', '.png', '.gif', '.webp'}
+        video_exts = {'.mp4', '.webm', '.ogg', '.mov'}
+        image_cts = {'image/jpeg', 'image/png', 'image/gif', 'image/webp'}
+        video_cts = {'video/mp4', 'video/webm', 'video/ogg', 'video/quicktime'}
+
+        is_image = ext in image_exts and ct in image_cts
+        is_video = ext in video_exts and (ct in video_cts or ct.startswith('video/'))
+
+        if not (is_image or is_video):
+            return Response({'detail': '仅支持图片(jpg/jpeg/png/gif/webp)与视频(mp4/webm/ogg/mov)'}, status=status.HTTP_400_BAD_REQUEST)
+
+        if is_image and upload.size > max_image:
+            return Response({'detail': '图片大小不能超过 5MB'}, status=status.HTTP_400_BAD_REQUEST)
+        if is_video and upload.size > max_video:
+            return Response({'detail': '视频大小不能超过 50MB'}, status=status.HTTP_400_BAD_REQUEST)
+
+        if is_image:
+            head = upload.read(2048)
+            upload.seek(0)
+            kind = imghdr.what(None, h=head)
+            if kind not in {'jpeg', 'png', 'gif', 'webp'}:
+                return Response({'detail': '图片内容校验失败'}, status=status.HTTP_400_BAD_REQUEST)
+
+        media_type = 'image' if is_image else 'video'
+        att = TicketAttachment.objects.create(
+            ticket=ticket,
+            media_type=media_type,
+            file=upload,
+            original_name=name
+        )
+        url = att.file.url if att.file else ''
+        if url and not url.startswith('http'):
+            url = request.build_absolute_uri(url)
+        return Response({'id': att.id, 'media_type': att.media_type, 'url': url, 'original_name': att.original_name}, status=201)
 
 
 class StudentStarViewSet(viewsets.ReadOnlyModelViewSet):
@@ -175,13 +353,14 @@ class StudentStarViewSet(viewsets.ReadOnlyModelViewSet):
     permission_classes = [AllowAny]
 
 
-import ssl
-
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def ai_chat(request):
     user = request.user
-    content = request.data.get('message', '').strip()
+    if user.role != 'student':
+        return Response({"detail": "AI 助手仅面向学生开放"}, status=status.HTTP_403_FORBIDDEN)
+
+    content = (request.data.get('message') or request.data.get('content') or '').strip()
     if not content:
         return Response({"detail": "问题内容不能为空"}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -192,10 +371,13 @@ def ai_chat(request):
         text = re.sub(r'[A-Za-z0-9_\-]{24,}', '[已脱敏标识]', text)
         return text
 
-    api_key = os.environ.get('AI_API_KEY') or os.environ.get('OPENAI_API_KEY') or "sk-yejrmdhdkioqibkiangxahwhzbdxkccajddgyoplwqxyobte"
+    api_key = os.environ.get('AI_API_KEY') or os.environ.get('OPENAI_API_KEY')
     base_url = (os.environ.get('AI_BASE_URL') or 'https://api.siliconflow.cn/v1').rstrip('/')
     model = os.environ.get('AI_MODEL') or 'deepseek-ai/DeepSeek-V3'
-    timeout = float(os.environ.get('AI_TIMEOUT') or 20)
+    try:
+        timeout = float(os.environ.get('AI_TIMEOUT') or 20)
+    except Exception:
+        timeout = 20.0
 
     normalized = content.lower()
     category = "其他"
@@ -291,6 +473,9 @@ def ai_chat(request):
 
     warning = "重要提示：AI 提供的建议请仅供参考，以实际为准，不能盲目操作。"
     if api_key:
+        if not base_url.startswith('https://'):
+            return Response({"answer": answer, "warning": warning, "mode": "fallback", "ai_enabled": False})
+
         outbound_content = _mask_pii(content)
         system_prompt = (
             "你是校园报修AI助手。请用中文回答，回答要保守、谨慎、以安全为先。"
@@ -306,15 +491,8 @@ def ai_chat(request):
             ],
             "temperature": 0.2,
         }
+        logger = logging.getLogger(__name__)
         try:
-            # DEBUG: 打印正在调用的 URL（方便用户排查）
-            print(f"[AI] Calling: {base_url}/chat/completions")
-            
-            # 创建忽略 SSL 验证的 context
-            ctx = ssl.create_default_context()
-            ctx.check_hostname = False
-            ctx.verify_mode = ssl.CERT_NONE
-            
             req = Request(
                 f"{base_url}/chat/completions",
                 data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
@@ -324,20 +502,22 @@ def ai_chat(request):
                 },
                 method="POST",
             )
-            # 增加超时时间到 30s，因为 DeepSeek V3 可能比较慢
-            with urlopen(req, context=ctx, timeout=30) as resp:
+            with urlopen(req, timeout=timeout) as resp:
                 data = json.loads(resp.read().decode("utf-8"))
             msg = (((data.get("choices") or [{}])[0].get("message") or {}).get("content") or "").strip()
             if msg:
-                return Response({"answer": msg, "warning": warning})
-        except Exception as e:
-            # DEBUG: 打印错误原因
-            print(f"[AI] Error: {e}")
-            # 如果 AI 调用失败，把错误信息也拼接到 warning 里，方便前端看到
-            warning += f" (Debug: AI 调用失败 - {str(e)})"
-            pass
+                return Response({"answer": msg, "warning": warning, "mode": "llm", "ai_enabled": True})
+        except HTTPError as e:
+            logger.warning("ai_chat_http_error", exc_info=True)
+            return Response({"answer": answer, "warning": warning, "mode": "fallback", "ai_enabled": True, "upstream_status": getattr(e, "code", None)}, status=200)
+        except URLError:
+            logger.warning("ai_chat_url_error", exc_info=True)
+            return Response({"answer": answer, "warning": warning, "mode": "fallback", "ai_enabled": True}, status=200)
+        except Exception:
+            logger.warning("ai_chat_error", exc_info=True)
+            return Response({"answer": answer, "warning": warning, "mode": "fallback", "ai_enabled": True}, status=200)
 
-    return Response({"answer": answer, "warning": warning})
+    return Response({"answer": answer, "warning": warning, "mode": "fallback", "ai_enabled": False})
 
 
 def change_status(request, order_id):

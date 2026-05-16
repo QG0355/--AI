@@ -21,14 +21,13 @@
               </template>
               <template v-else>
                 <button class="btn-primary" @click="handleMainBtnClick">
-                  <i :class="isStudent ? 'fas fa-wrench' : 'fas fa-briefcase'"></i>
-                  {{ isStudent ? '我要报修' : '进入工作台' }}
+                  <i :class="mainActionIcon"></i>
+                  {{ mainActionLabel }}
                 </button>
                 <button class="btn-ghost" @click="goTickets" v-if="isStudent">
                   <i class="fas fa-list"></i>
                   我的报修记录
                 </button>
-                <!-- 如果是工作人员，显示进入审核中心按钮（仅限管理员/审核员） -->
                 <button class="btn-ghost" @click="$router.push('/approval')" v-if="['admin', 'auditor'].includes(authStore.currentUser?.role)">
                   <i class="fas fa-check-square"></i>
                   审核中心
@@ -43,17 +42,9 @@
           </div>
 
           <div class="hero-side">
-            <div class="stat-card">
-              <div class="stat-label">今日报修</div>
-              <div class="stat-value">—</div>
-            </div>
-            <div class="stat-card">
-              <div class="stat-label">正在处理</div>
-              <div class="stat-value">—</div>
-            </div>
-            <div class="stat-card">
-              <div class="stat-label">平均处理时间</div>
-              <div class="stat-value">—</div>
+            <div v-for="(s, idx) in heroStats" :key="idx" class="stat-card">
+              <div class="stat-label">{{ s.label }}</div>
+              <div class="stat-value">{{ s.value }}</div>
             </div>
             <p class="stat-note">以上数据为示意展示，可在后续按任务书要求接真实统计。</p>
           </div>
@@ -91,8 +82,7 @@
           <p>用自然语言咨询报修流程和注意事项，结果仅供参考，请以实际为准。</p>
         </div>
         
-        <!-- 工作人员入口 -->
-        <div class="entry-card" @click="$router.push('/workplace')" v-if="!isStudent">
+        <div class="entry-card" @click="$router.push('/workplace')" v-if="['maintenance', 'repair_admin', 'admin'].includes(authStore.currentUser?.role)">
           <div class="entry-icon primary">
             <i class="fas fa-briefcase"></i>
           </div>
@@ -108,6 +98,14 @@
           <p>对新提交的报修申请进行审核、驳回或派单操作。</p>
         </div>
       </div>
+    </section>
+
+    <section class="section" v-if="showStarCarousel">
+      <div class="section-header">
+        <h2>优秀维修之星</h2>
+        <p>展示优秀维修人员事迹（由管理员维护）</p>
+      </div>
+      <StudentStarCarousel />
     </section>
 
     <section class="section gray">
@@ -139,7 +137,10 @@
 <script setup>
 import { useAuthStore } from '@/stores/auth'
 import { useRouter } from 'vue-router'
-import { computed } from 'vue'
+import { computed, ref, onMounted, watch } from 'vue'
+import StudentStarCarousel from '@/components/StudentStarCarousel.vue'
+import axios from 'axios'
+import { apiUrl } from '@/config'
 
 const authStore = useAuthStore()
 const router = useRouter()
@@ -148,8 +149,122 @@ const isStudent = computed(() => {
   return authStore.currentUser?.role === 'student'
 })
 
+const showStarCarousel = computed(() => {
+  const role = authStore.currentUser?.role
+  return role === 'student' || role === 'maintenance'
+})
+
+const mainActionLabel = computed(() => {
+  const role = authStore.currentUser?.role
+  if (role === 'student') return '我要报修'
+  if (role === 'auditor') return '进入审核中心'
+  if (role === 'admin') return '进入管理后台'
+  return '进入工作台'
+})
+
+const mainActionIcon = computed(() => {
+  const role = authStore.currentUser?.role
+  if (role === 'student') return 'fas fa-wrench'
+  if (role === 'auditor') return 'fas fa-check-square'
+  if (role === 'admin') return 'fas fa-cogs'
+  return 'fas fa-briefcase'
+})
+
+const statsData = ref({
+  studentTotal: 0,
+  studentProcessing: 0,
+  studentClosed: 0,
+  pendingReview: 0,
+  pendingDispatch: 0,
+  rejected: 0,
+  todayClosed: 0,
+  good: 0,
+  bad: 0
+})
+
+const heroStats = computed(() => {
+  const role = authStore.currentUser?.role
+  if (role === 'maintenance') {
+    return [
+      { label: '今日已结单', value: statsData.value.todayClosed },
+      { label: '好评', value: statsData.value.good },
+      { label: '差评', value: statsData.value.bad }
+    ]
+  }
+  if (role === 'auditor' || role === 'admin') {
+    return [
+      { label: '待审核', value: statsData.value.pendingReview },
+      { label: '待派单', value: statsData.value.pendingDispatch },
+      { label: '已驳回', value: statsData.value.rejected }
+    ]
+  }
+  return [
+    { label: '我的报修', value: statsData.value.studentTotal },
+    { label: '处理中', value: statsData.value.studentProcessing },
+    { label: '已结单', value: statsData.value.studentClosed }
+  ]
+})
+
+async function fetchStats() {
+  if (!authStore.isLoggedIn || !authStore.token || !authStore.currentUser?.role) return
+
+  const role = authStore.currentUser.role
+  const headers = { Authorization: `Token ${authStore.token}` }
+
+  if (role === 'student') {
+    const res = await axios.get(apiUrl('tickets/'), { headers })
+    const tickets = Array.isArray(res.data) ? res.data : []
+    const processingStatuses = ['pending_dorm', 'pending_dispatch', 'repairing', 'finished']
+    statsData.value.studentTotal = tickets.length
+    statsData.value.studentProcessing = tickets.filter(t => processingStatuses.includes(t.status)).length
+    statsData.value.studentClosed = tickets.filter(t => t.status === 'closed').length
+    return
+  }
+
+  if (role === 'maintenance') {
+    const res = await axios.get(apiUrl('tickets/'), { headers })
+    const tickets = Array.isArray(res.data) ? res.data : []
+    const my = tickets.filter(t => t.assignee === authStore.currentUser?.id)
+    const today = new Date()
+    const isToday = (iso) => {
+      if (!iso) return false
+      const d = new Date(iso)
+      return d.getFullYear() === today.getFullYear() && d.getMonth() === today.getMonth() && d.getDate() === today.getDate()
+    }
+    const closedToday = my.filter(t => t.status === 'closed' && isToday(t.updateTime))
+    statsData.value.todayClosed = closedToday.length
+    statsData.value.good = closedToday.filter(t => (t.rating || 0) >= 4).length
+    statsData.value.bad = closedToday.filter(t => (t.rating || 0) <= 2).length
+    return
+  }
+
+  if (role === 'auditor' || role === 'admin') {
+    const [pendingRes, allRes] = await Promise.all([
+      axios.get(apiUrl('tickets/'), { headers, params: { status: 'pending_dorm' } }),
+      axios.get(apiUrl('tickets/'), { headers })
+    ])
+    const pending = Array.isArray(pendingRes.data) ? pendingRes.data : []
+    const all = Array.isArray(allRes.data) ? allRes.data : []
+    statsData.value.pendingReview = pending.length
+    statsData.value.pendingDispatch = all.filter(t => t.status === 'pending_dispatch').length
+    statsData.value.rejected = all.filter(t => t.status === 'rejected').length
+  }
+}
+
+onMounted(() => {
+  fetchStats()
+})
+
+watch(
+  () => authStore.currentUser?.role,
+  () => {
+    fetchStats()
+  }
+)
+
 function handleMainBtnClick() {
-  if (isStudent.value) {
+  const role = authStore.currentUser?.role
+  if (role === 'student') {
     if (!authStore.currentUser?.is_identity_bound) {
       if (confirm('您尚未绑定身份信息，绑定后即可报修。\n是否现在去绑定？')) {
         router.push('/bind')
@@ -157,10 +272,17 @@ function handleMainBtnClick() {
     } else {
       router.push('/submit')
     }
-  } else {
-    // 老师/管理员/维修工 -> 工作台
-    router.push('/workplace')
+    return
   }
+  if (role === 'auditor') {
+    router.push('/approval')
+    return
+  }
+  if (role === 'admin') {
+    router.push('/admin')
+    return
+  }
+  router.push('/workplace')
 }
 
 function goSubmit() {
@@ -168,15 +290,25 @@ function goSubmit() {
     router.push('/login')
     return
   }
-  // 必须是学生才能去提交报修页面
   if (authStore.currentUser?.role === 'student') {
      router.push('/submit')
   } else {
-     // 其他角色点提交报修，应该去哪里？或者提示不需要提交
-     // 暂时让他们去工作台看单子，或者提示
-     if (confirm('当前角色为工作人员，无法提交报修。\n是否进入工作台处理工单？')) {
-        router.push('/workplace')
-     }
+    const role = authStore.currentUser?.role
+    if (role === 'auditor') {
+      if (confirm('当前角色为审核员，无法提交报修。\n是否进入审核中心？')) {
+        router.push('/approval')
+      }
+      return
+    }
+    if (role === 'admin') {
+      if (confirm('当前角色为管理员，无法提交报修。\n是否进入管理后台？')) {
+        router.push('/admin')
+      }
+      return
+    }
+    if (confirm('当前角色为工作人员，无法提交报修。\n是否进入工作台处理工单？')) {
+      router.push('/workplace')
+    }
   }
 }
 
@@ -213,7 +345,7 @@ function goAi() {
 .hero-section {
   background-image:
     linear-gradient(120deg, rgba(176, 50, 91, 0.82), rgba(255, 188, 188, 0.75)),
-    url('https://images.pexels.com/photos/373488/pexels-photo-373488.jpeg?auto=compress&cs=tinysrgb&w=1600');
+    var(--dashboard-hero-bg);
   background-size: cover;
   background-position: center;
   color: #fff;
@@ -225,7 +357,7 @@ function goAi() {
 }
 
 .hero-main {
-  max-width: 1100px;
+  max-width: var(--app-page-max-width);
   margin: 0 auto;
   display: grid;
   grid-template-columns: 2fr 1fr;
@@ -335,7 +467,7 @@ function goAi() {
 }
 
 .section {
-  max-width: 1100px;
+  max-width: var(--app-page-max-width);
   margin: 0 auto;
   padding: 28px 20px 32px;
 }

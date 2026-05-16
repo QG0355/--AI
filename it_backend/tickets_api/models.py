@@ -2,6 +2,13 @@ from django.db import models
 from django.contrib.auth.models import AbstractUser
 
 
+def _user_avatar_upload_to(instance, filename):
+    import os
+    import uuid
+    ext = os.path.splitext(filename)[1].lower()
+    return f"avatars/{instance.pk}/{uuid.uuid4().hex}{ext}"
+
+
 class CustomUser(AbstractUser):
     IDENTITY_CHOICES = (
         ('student', '学生'),
@@ -10,7 +17,16 @@ class CustomUser(AbstractUser):
         ('admin', '超级管理员'),
     )
 
+    GENDER_CHOICES = (
+        ('unknown', '未知'),
+        ('male', '男'),
+        ('female', '女'),
+    )
+
     name = models.CharField(max_length=100, blank=True, verbose_name="真实姓名")
+    gender = models.CharField(max_length=10, choices=GENDER_CHOICES, default='unknown', verbose_name="性别")
+    avatar_url = models.URLField(blank=True, default='', verbose_name="头像地址")
+    avatar = models.FileField(upload_to=_user_avatar_upload_to, blank=True, null=True, verbose_name="头像文件")
     role = models.CharField(max_length=20, choices=IDENTITY_CHOICES, default='student', verbose_name="身份角色")
     identity_id = models.CharField(max_length=50, unique=True, null=True, blank=True, verbose_name="身份ID")
     is_identity_bound = models.BooleanField(default=False, verbose_name="是否已绑定")
@@ -56,6 +72,8 @@ class Ticket(models.Model):
 
     evaluation = models.TextField(blank=True, null=True, verbose_name="学生评价")
     rating = models.IntegerField(default=5, verbose_name="评分(1-5)")
+    is_anonymous = models.BooleanField(default=False, verbose_name="是否匿名评价")
+    rejected_reason = models.TextField(blank=True, null=True, verbose_name="驳回理由")
 
     submitTime = models.DateTimeField(auto_now_add=True)
     updateTime = models.DateTimeField(auto_now=True)
@@ -88,12 +106,37 @@ class StudentStar(models.Model):
     grade = models.CharField(max_length=50, blank=True, verbose_name="年级")
     honor = models.CharField(max_length=200, blank=True, verbose_name="荣誉称号")
     description = models.TextField(blank=True, verbose_name="事迹简介")
+    score = models.DecimalField(max_digits=3, decimal_places=2, default=5.00, verbose_name="评分")
+    score_count = models.IntegerField(default=0, verbose_name="评价人数")
     avatar_url = models.URLField(blank=True, verbose_name="头像地址")
     sort_order = models.IntegerField(default=0, verbose_name="排序值")
     is_active = models.BooleanField(default=True, verbose_name="是否展示")
 
     def __str__(self):
         return self.name
+
+
+def _ticket_media_upload_to(instance, filename):
+    import os
+    import uuid
+    ext = os.path.splitext(filename)[1].lower()
+    return f"tickets/{instance.ticket_id}/{uuid.uuid4().hex}{ext}"
+
+
+class TicketAttachment(models.Model):
+    MEDIA_CHOICES = (
+        ('image', '图片'),
+        ('video', '视频'),
+    )
+
+    ticket = models.ForeignKey(Ticket, on_delete=models.CASCADE, related_name='attachments')
+    media_type = models.CharField(max_length=10, choices=MEDIA_CHOICES)
+    file = models.FileField(upload_to=_ticket_media_upload_to)
+    original_name = models.CharField(max_length=255, blank=True, default='')
+    uploaded_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"{self.ticket_id}-{self.media_type}"
 
 
 class StudentProfile(models.Model):

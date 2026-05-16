@@ -16,6 +16,7 @@ router.register(r'student-stars', StudentStarViewSet, basename='student_star')
 urlpatterns = [
     path('login/', CustomAuthToken.as_view(), name='api_login'),
     path('me/', views.get_current_user, name='api_me'),
+    path('me/avatar/', views.upload_my_avatar, name='api_me_avatar'),
     path('register/', RegisterView.as_view(), name='api_register'),
     path('bind-identity/', bind_identity, name='api_bind_identity'),
     path('', include(router.urls)),

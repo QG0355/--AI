@@ -1,8 +1,7 @@
 // src/stores/auth.js
 import { defineStore } from 'pinia'
 import axios from 'axios'
-
-const API_URL = 'http://127.0.0.1:8000/api'
+import { apiUrl } from '@/config'
 
 export const useAuthStore = defineStore('auth', {
   state: () => ({
@@ -18,7 +17,7 @@ export const useAuthStore = defineStore('auth', {
   actions: {
     async login(username, password) {
       try {
-        const response = await axios.post(`${API_URL}/login/`, { username, password })
+        const response = await axios.post(apiUrl('login/'), { username, password })
         
         this.token = response.data.token
         this.currentUser = response.data.user
@@ -71,7 +70,7 @@ export const useAuthStore = defineStore('auth', {
       try {
         // 确保 header 里有 token
         axios.defaults.headers.common['Authorization'] = `Token ${this.token}`
-        const response = await axios.get(`${API_URL}/me/`)
+        const response = await axios.get(apiUrl('me/'))
         this.currentUser = response.data
       } catch (error) {
         console.error('获取用户信息失败:', error)

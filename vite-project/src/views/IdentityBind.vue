@@ -38,6 +38,7 @@ import { ref } from 'vue'
 import axios from 'axios'
 import { useAuthStore } from '@/stores/auth'
 import { useRouter } from 'vue-router'
+import { apiUrl } from '@/config'
 
 const form = ref({ role: 'student', name: '', identity_id: '' })
 const authStore = useAuthStore()
@@ -47,7 +48,7 @@ const loading = ref(false)
 async function handleBind() {
   loading.value = true
   try {
-    const res = await axios.post('http://127.0.0.1:8000/api/bind-identity/', form.value, {
+    const res = await axios.post(apiUrl('bind-identity/'), form.value, {
       headers: { Authorization: `Token ${authStore.token}` }
     })
     // 更新本地状态

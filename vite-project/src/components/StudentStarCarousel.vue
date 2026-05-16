@@ -22,6 +22,9 @@
             <span v-if="s.major">{{ s.major }}</span>
           </p>
           <p class="star-honor" v-if="s.honor">{{ s.honor }}</p>
+          <p class="star-score" v-if="s.score !== undefined && s.score !== null">
+            评分 {{ formatScore(s.score) }}/5（{{ s.score_count || 0 }}人）
+          </p>
           <p class="star-desc">{{ s.description }}</p>
         </div>
       </div>
@@ -42,6 +45,8 @@
 <script setup>
 import { ref, onMounted, onBeforeUnmount } from 'vue'
 import axios from 'axios'
+import { apiUrl } from '@/config'
+import { STAR_FALLBACK_AVATARS } from '@/assets/imageSources'
 
 const stars = ref([])
 const activeIndex = ref(0)
@@ -53,26 +58,38 @@ const fallbackStars = [
     grade: '后勤维修组',
     major: '水电维护',
     honor: '本月抢单王',
+    score: 4.9,
+    score_count: 128,
     description: '响应报修及时，处理水电设施故障经验丰富，多次在教学高峰期保障教学秩序。',
-    fallbackAvatar: 'https://images.pexels.com/photos/614810/pexels-photo-614810.jpeg?auto=compress&cs=tinysrgb&w=600'
+    fallbackAvatar: STAR_FALLBACK_AVATARS[0]
   },
   {
     name: '黄师傅',
     grade: '综合维修组',
     major: '宿舍设施维护',
     honor: '服务之星',
+    score: 4.8,
+    score_count: 96,
     description: '对学生态度耐心细致，帮助解决宿舍门窗、家具等多类问题，获多次学生表扬。',
-    fallbackAvatar: 'https://images.pexels.com/photos/733872/pexels-photo-733872.jpeg?auto=compress&cs=tinysrgb&w=600'
+    fallbackAvatar: STAR_FALLBACK_AVATARS[1]
   },
   {
     name: '梁师傅',
     grade: '网络运维组',
     major: '网络与多媒体设备',
     honor: '技术能手',
+    score: 4.7,
+    score_count: 74,
     description: '熟悉校园网络与多媒体设备，快速排查教室网络和投影问题，保障课堂正常进行。',
-    fallbackAvatar: 'https://images.pexels.com/photos/927022/pexels-photo-927022.jpeg?auto=compress&cs=tinysrgb&w=600'
+    fallbackAvatar: STAR_FALLBACK_AVATARS[2]
   }
 ]
+
+function formatScore(value) {
+  const n = Number(value)
+  if (!Number.isFinite(n)) return '5.0'
+  return n.toFixed(1)
+}
 
 function startAutoPlay() {
   stopAutoPlay()
@@ -96,7 +113,7 @@ function setActive(index) {
 
 onMounted(async () => {
   try {
-    const res = await axios.get('http://127.0.0.1:8000/api/student-stars/')
+    const res = await axios.get(apiUrl('student-stars/'))
     if (Array.isArray(res.data) && res.data.length) {
       stars.value = res.data.map((s, idx) => ({
         ...s,
@@ -199,6 +216,13 @@ onBeforeUnmount(() => {
   font-size: 14px;
   color: #d2436b;
   font-weight: 600;
+}
+
+.star-score {
+  margin: 0 0 10px;
+  font-size: 14px;
+  font-weight: 800;
+  color: #2563eb;
 }
 
 .star-desc {

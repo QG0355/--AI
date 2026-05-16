@@ -40,8 +40,59 @@
           <p><i class="fas fa-clock"></i> {{ formatDate(ticket.submitTime) }}</p>
         </div>
 
+        <div class="reject-box" v-if="ticket.status === 'rejected'">
+          <div class="reject-title">驳回原因</div>
+          <div class="reject-reason">{{ ticket.rejected_reason || '未填写驳回理由' }}</div>
+        </div>
+
         <div class="card-actions" v-if="ticket.status === 'pending_dispatch' && auth.currentUser?.role === 'student'">
           <button @click="deleteTicket(ticket.id)" class="btn-text-danger">撤销工单</button>
+        </div>
+
+        <div class="card-actions" v-if="ticket.status === 'finished' && auth.currentUser?.role === 'student'">
+          <button @click="openEvaluate(ticket.id)" class="btn-text-primary">评价并结单</button>
+        </div>
+
+        <div class="card-actions" v-if="ticket.status === 'rejected' && auth.currentUser?.role === 'student'">
+          <button @click="editRejected(ticket.id)" class="btn-text-primary">重新编辑并提交</button>
+        </div>
+      </div>
+    </div>
+
+    <div v-if="evaluateModal.open" class="modal-mask" @click.self="closeEvaluate">
+      <div class="modal">
+        <div class="modal-title">评价本次维修</div>
+        <div class="field">
+          <div class="label">评分</div>
+          <div class="stars">
+            <button
+              v-for="n in 5"
+              :key="n"
+              type="button"
+              class="star"
+              :class="{ active: n <= evaluateModal.rating }"
+              @click="evaluateModal.rating = n"
+            >
+              ★
+            </button>
+          </div>
+        </div>
+
+        <div class="field">
+          <div class="label">评价内容（可选）</div>
+          <textarea v-model="evaluateModal.text" rows="4" placeholder="说说你的感受..."></textarea>
+        </div>
+
+        <label class="anon-row">
+          <input type="checkbox" v-model="evaluateModal.anonymous">
+          <span>匿名评价</span>
+        </label>
+
+        <div class="modal-actions">
+          <button class="btn-cancel" type="button" @click="closeEvaluate">取消</button>
+          <button class="btn-confirm" type="button" @click="submitEvaluate" :disabled="evaluateModal.submitting">
+            {{ evaluateModal.submitting ? '提交中...' : '提交评价' }}
+          </button>
         </div>
       </div>
     </div>
@@ -49,13 +100,17 @@
 </template>
 
 <script setup>
-import { onMounted, ref } from 'vue' // 1. 引入 ref
+import { onMounted, ref } from 'vue'
 import { useTicketStore } from '@/stores/ticketStore'
 import { useAuthStore } from '@/stores/auth'
 import axios from 'axios'
+import { useRouter } from 'vue-router'
+import { apiUrl } from '@/config'
 
 const ticketStore = useTicketStore()
 const auth = useAuthStore()
+const router = useRouter()
+const evaluateModal = ref({ open: false, ticketId: null, rating: 5, text: '', anonymous: true, submitting: false })
 
 // 2. 定义搜索变量
 const searchText = ref('')
@@ -75,7 +130,7 @@ onMounted(() => {
 async function deleteTicket(id) {
   if(!confirm("确定要撤销此报修单吗？")) return;
   try {
-    await axios.delete(`http://127.0.0.1:8000/api/tickets/${id}/`, {
+    await axios.delete(apiUrl(`tickets/${id}/`), {
       headers: { Authorization: `Token ${auth.token}` }
     })
     alert("已撤销")
@@ -86,9 +141,56 @@ async function deleteTicket(id) {
   }
 }
 
+function openEvaluate(id) {
+  evaluateModal.value.open = true
+  evaluateModal.value.ticketId = id
+  evaluateModal.value.rating = 5
+  evaluateModal.value.text = ''
+  evaluateModal.value.anonymous = true
+  evaluateModal.value.submitting = false
+}
+
+function closeEvaluate() {
+  evaluateModal.value.open = false
+  evaluateModal.value.ticketId = null
+  evaluateModal.value.submitting = false
+}
+
+async function submitEvaluate() {
+  const id = evaluateModal.value.ticketId
+  if (!id) return
+  const rating = Number(evaluateModal.value.rating)
+  if (!Number.isFinite(rating) || rating < 1 || rating > 5) {
+    alert('评分需为 1-5')
+    return
+  }
+  evaluateModal.value.submitting = true
+  try {
+    await axios.post(apiUrl(`tickets/${id}/handle/`), {
+      type: 'evaluate',
+      rating: Math.round(rating),
+      evaluation: evaluateModal.value.text,
+      is_anonymous: evaluateModal.value.anonymous
+    }, {
+      headers: { Authorization: `Token ${auth.token}` }
+    })
+    alert('已提交评价并结单')
+    ticketStore.fetchTickets(searchText.value)
+    closeEvaluate()
+  } catch (e) {
+    alert('提交评价失败')
+    evaluateModal.value.submitting = false
+  }
+}
+
+function editRejected(id) {
+  router.push({ path: '/submit', query: { edit: id } })
+}
+
 // 状态样式映射
 function getStatusClass(status) {
   const map = {
+    'pending_dorm': 'pending',
     'pending_dispatch': 'pending',
     'repairing': 'processing',
     'finished': 'completed',
@@ -101,6 +203,7 @@ function getStatusClass(status) {
 // 状态文字映射
 function getStatusName(status) {
     const map = {
+        'pending_dorm': '待审核',
         'pending_dispatch': '正在处理',
         'repairing': '维修中',
         'finished': '已完成', 
@@ -117,7 +220,7 @@ function formatDate(iso) {
 
 <style scoped>
 .page-content { 
-  max-width: 1000px; 
+  max-width: var(--app-page-max-width); 
   margin: 0 auto; 
   padding: 30px 20px; 
 }
@@ -201,6 +304,27 @@ function formatDate(iso) {
 .btn-primary { padding: 8px 20px; background: #1890ff; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 14px;}
 .btn-text-danger { background: none; border: none; color: #ff4d4f; cursor: pointer; font-size: 13px; }
 .btn-text-danger:hover { text-decoration: underline; }
+.btn-text-primary { background: none; border: none; color: #1890ff; cursor: pointer; font-size: 13px; }
+.btn-text-primary:hover { text-decoration: underline; }
+
+.reject-box { margin-top: 10px; padding: 10px 12px; background: #fff7ed; border: 1px solid #fed7aa; border-radius: 8px; }
+.reject-title { font-size: 12px; font-weight: 800; color: #c2410c; margin-bottom: 4px; }
+.reject-reason { font-size: 13px; color: #9a3412; line-height: 1.6; word-break: break-word; }
+
+.modal-mask { position: fixed; inset: 0; background: rgba(15, 23, 42, 0.5); display: flex; align-items: center; justify-content: center; padding: 16px; z-index: 200; }
+.modal { width: 100%; max-width: 520px; background: white; border-radius: 14px; border: 1px solid #e2e8f0; box-shadow: 0 30px 60px rgba(15, 23, 42, 0.25); padding: 16px; }
+.modal-title { font-size: 16px; font-weight: 900; color: #0f172a; margin-bottom: 12px; }
+.field { margin-bottom: 12px; }
+.label { font-size: 13px; font-weight: 800; color: #334155; margin-bottom: 6px; }
+.stars { display: flex; gap: 6px; }
+.star { border: none; background: #e2e8f0; color: #64748b; padding: 6px 10px; border-radius: 10px; cursor: pointer; font-size: 16px; line-height: 1; }
+.star.active { background: #2563eb; color: white; }
+.modal textarea { width: 100%; border: 1px solid #e2e8f0; border-radius: 10px; padding: 10px 12px; box-sizing: border-box; font-size: 14px; resize: vertical; }
+.anon-row { display: flex; align-items: center; gap: 8px; font-size: 13px; color: #334155; margin: 6px 0 12px; }
+.modal-actions { display: flex; justify-content: flex-end; gap: 10px; }
+.btn-cancel { background: #e2e8f0; border: none; border-radius: 10px; padding: 10px 12px; cursor: pointer; font-weight: 800; color: #334155; }
+.btn-confirm { background: #2563eb; border: none; border-radius: 10px; padding: 10px 12px; cursor: pointer; font-weight: 900; color: white; }
+.btn-confirm:disabled { opacity: 0.7; cursor: not-allowed; }
 
 .empty-state { text-align: center; padding: 60px; color: #bbb; }
 .empty-icon { font-size: 48px; margin-bottom: 10px; opacity: 0.5; }
