@@ -183,6 +183,23 @@ class TicketViewSet(viewsets.ModelViewSet):
             return
         serializer.save()
 
+    def destroy(self, request, *args, **kwargs):
+        ticket = self.get_object()
+        user = request.user
+
+        if user.role == 'student':
+            if ticket.submitter != user:
+                return Response({'detail': '只能撤销自己提交的工单'}, status=status.HTTP_403_FORBIDDEN)
+            if ticket.status not in ['pending_dorm', 'pending_dispatch', 'rejected']:
+                return Response({'detail': '当前状态不可撤销'}, status=status.HTTP_400_BAD_REQUEST)
+        elif user.role in ['admin', 'auditor']:
+            pass
+        else:
+            return Response({'detail': '无权撤销工单'}, status=status.HTTP_403_FORBIDDEN)
+
+        ticket.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
     # Ticket Handling Action (Assign, Finish, Evaluate)
     @action(detail=True, methods=['post'])
     def handle(self, request, pk=None):

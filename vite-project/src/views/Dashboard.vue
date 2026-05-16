@@ -140,7 +140,7 @@ import { useRouter } from 'vue-router'
 import { computed, ref, onMounted, watch } from 'vue'
 import StudentStarCarousel from '@/components/StudentStarCarousel.vue'
 import axios from 'axios'
-import { apiUrl } from '@/config'
+import { apiUrl, API_BASE_URL } from '@/config'
 
 const authStore = useAuthStore()
 const router = useRouter()
@@ -278,7 +278,7 @@ function handleMainBtnClick() {
     return
   }
   if (role === 'admin') {
-    router.push('/admin')
+    window.open(`${API_BASE_URL}/admin/`, '_blank')
     return
   }
   router.push('/workplace')
@@ -301,7 +301,7 @@ function goSubmit() {
     }
     if (role === 'admin') {
       if (confirm('当前角色为管理员，无法提交报修。\n是否进入管理后台？')) {
-        router.push('/admin')
+        window.open(`${API_BASE_URL}/admin/`, '_blank')
       }
       return
     }

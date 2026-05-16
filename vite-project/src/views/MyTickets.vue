@@ -45,6 +45,10 @@
           <div class="reject-reason">{{ ticket.rejected_reason || '未填写驳回理由' }}</div>
         </div>
 
+        <div class="card-actions" v-if="(ticket.attachments?.length || 0) > 0">
+          <button @click="openAttachments(ticket.attachments)" class="btn-text-primary">查看附件（{{ ticket.attachments.length }}）</button>
+        </div>
+
         <div class="card-actions" v-if="ticket.status === 'pending_dispatch' && auth.currentUser?.role === 'student'">
           <button @click="deleteTicket(ticket.id)" class="btn-text-danger">撤销工单</button>
         </div>
@@ -96,6 +100,23 @@
         </div>
       </div>
     </div>
+
+    <div v-if="attachmentsModal.open" class="modal-mask" @click.self="closeAttachments">
+      <div class="modal">
+        <div class="modal-title">附件预览</div>
+        <div v-if="attachmentsModal.items.length" class="attach-grid">
+          <div v-for="a in attachmentsModal.items" :key="a.id" class="attach-item">
+            <img v-if="a.media_type === 'image'" :src="a.url" alt="图片" />
+            <video v-else controls :src="a.url"></video>
+            <div class="attach-name">{{ a.original_name || a.url }}</div>
+          </div>
+        </div>
+        <div v-else class="empty-attach">暂无附件</div>
+        <div class="modal-actions">
+          <button class="btn-cancel" type="button" @click="closeAttachments">关闭</button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -111,6 +132,7 @@ const ticketStore = useTicketStore()
 const auth = useAuthStore()
 const router = useRouter()
 const evaluateModal = ref({ open: false, ticketId: null, rating: 5, text: '', anonymous: true, submitting: false })
+const attachmentsModal = ref({ open: false, items: [] })
 
 // 2. 定义搜索变量
 const searchText = ref('')
@@ -154,6 +176,16 @@ function closeEvaluate() {
   evaluateModal.value.open = false
   evaluateModal.value.ticketId = null
   evaluateModal.value.submitting = false
+}
+
+function openAttachments(items) {
+  attachmentsModal.value.open = true
+  attachmentsModal.value.items = Array.isArray(items) ? items : []
+}
+
+function closeAttachments() {
+  attachmentsModal.value.open = false
+  attachmentsModal.value.items = []
 }
 
 async function submitEvaluate() {
@@ -325,6 +357,11 @@ function formatDate(iso) {
 .btn-cancel { background: #e2e8f0; border: none; border-radius: 10px; padding: 10px 12px; cursor: pointer; font-weight: 800; color: #334155; }
 .btn-confirm { background: #2563eb; border: none; border-radius: 10px; padding: 10px 12px; cursor: pointer; font-weight: 900; color: white; }
 .btn-confirm:disabled { opacity: 0.7; cursor: not-allowed; }
+.attach-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 12px; margin-top: 10px; }
+.attach-item { border: 1px solid #e2e8f0; border-radius: 12px; padding: 10px; background: #f8fafc; display: flex; flex-direction: column; gap: 8px; }
+.attach-item img, .attach-item video { width: 100%; border-radius: 10px; background: #000; }
+.attach-name { font-size: 12px; color: #334155; word-break: break-all; }
+.empty-attach { padding: 18px 0; text-align: center; color: #94a3b8; font-size: 13px; }
 
 .empty-state { text-align: center; padding: 60px; color: #bbb; }
 .empty-icon { font-size: 48px; margin-bottom: 10px; opacity: 0.5; }
