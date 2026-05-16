@@ -11,7 +11,7 @@
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 
-  --dashboard-hero-bg: url("https://images.pexels.com/photos/373488/pexels-photo-373488.jpeg?auto=compress&cs=tinysrgb&w=1600");
+  --dashboard-hero-bg: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   --app-page-max-width: 1400px;
   --app-page-padding-x: 20px;
 }

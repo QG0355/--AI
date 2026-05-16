@@ -265,11 +265,11 @@ async function submitTicket() {
       await uploadAllAttachments(createdId)
     }
     
-    alert("报修成功！")
+    // alert("报修成功！")
     router.push('/tickets')
   } catch (e) {
     console.error(e.response?.data)
-    alert("提交失败：" + JSON.stringify(e.response?.data))
+    // alert("提交失败：" + JSON.stringify(e.response?.data))
   } finally {
     loading.value = false
     revokePreviews()

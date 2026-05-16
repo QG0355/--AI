@@ -56,6 +56,7 @@ import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import axios from 'axios'
 import { apiUrl } from '@/config'
+import { useAuthStore } from '@/stores/auth'
 
 const router = useRouter()
 const loading = ref(false)
@@ -77,14 +78,23 @@ async function handleRegister() {
   error.value = null
 
   try {
-    // 发送最简单的注册请求
+    // 1. 发送注册请求
     await axios.post(apiUrl('register/'), {
       username: form.value.username,
       password: form.value.password
     })
     
-    alert("注册成功！请登录并完成身份绑定。")
-    router.push('/login')
+    // 2. 注册成功后尝试自动登录
+    const authStore = useAuthStore()
+    const loginResult = await authStore.login(form.value.username, form.value.password)
+    
+    if (loginResult.success) {
+      // 登录成功，跳转到身份绑定
+      router.push('/bind')
+    } else {
+      // 登录失败（虽然注册成功了），跳转到登录页手动登录
+      router.push('/login')
+    }
 
   } catch (err) {
     loading.value = false

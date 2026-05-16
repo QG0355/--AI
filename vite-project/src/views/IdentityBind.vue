@@ -55,13 +55,13 @@ async function handleBind() {
     authStore.currentUser = res.data.user
     localStorage.setItem('user', JSON.stringify(res.data.user))
     
-    alert("绑定成功！")
+    // alert("绑定成功！")
     const role = res.data.user?.role
     if (role === 'auditor') router.push('/approval')
     else if (['maintenance', 'repair_admin', 'admin'].includes(role)) router.push('/workplace')
     else router.push('/')
   } catch (e) {
-    alert("绑定失败：" + (e.response?.data?.detail || "未知错误"))
+    // alert("绑定失败：" + (e.response?.data?.detail || "未知错误"))
   } finally {
     loading.value = false
   }

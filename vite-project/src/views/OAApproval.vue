@@ -95,7 +95,7 @@ async function review(id, decision) {
     { decision },
     { headers: { Authorization: `Token ${auth.token}` } }
   )
-  alert('操作成功')
+  // alert('操作成功')
   list.value = list.value.filter(i => i.id !== id)
 }
 
@@ -122,11 +122,11 @@ async function confirmReject() {
       { decision: 'reject', reason: rejectModal.value.reason },
       { headers: { Authorization: `Token ${auth.token}` } }
     )
-    alert('操作成功')
+    // alert('操作成功')
     list.value = list.value.filter(i => i.id !== rejectModal.value.ticketId)
     closeReject()
   } catch (e) {
-    alert('驳回失败')
+    // alert('驳回失败')
     rejectModal.value.submitting = false
   }
 }

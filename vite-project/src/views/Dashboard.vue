@@ -150,8 +150,7 @@ const isStudent = computed(() => {
 })
 
 const showStarCarousel = computed(() => {
-  const role = authStore.currentUser?.role
-  return role === 'student' || role === 'maintenance'
+  return authStore.currentUser?.role === 'student'
 })
 
 const mainActionLabel = computed(() => {

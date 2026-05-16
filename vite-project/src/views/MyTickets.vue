@@ -128,16 +128,16 @@ onMounted(() => {
 
 // 撤销功能
 async function deleteTicket(id) {
-  if(!confirm("确定要撤销此报修单吗？")) return;
+  // if(!confirm("确定要撤销此报修单吗？")) return;
   try {
     await axios.delete(apiUrl(`tickets/${id}/`), {
       headers: { Authorization: `Token ${auth.token}` }
     })
-    alert("已撤销")
+    // alert("已撤销")
     // 撤销后重新刷新列表，保留当前的搜索条件
     ticketStore.fetchTickets(searchText.value)
   } catch (e) {
-    alert("撤销失败")
+    // alert("撤销失败")
   }
 }
 
@@ -174,11 +174,11 @@ async function submitEvaluate() {
     }, {
       headers: { Authorization: `Token ${auth.token}` }
     })
-    alert('已提交评价并结单')
+    // alert('已提交评价并结单')
     ticketStore.fetchTickets(searchText.value)
     closeEvaluate()
   } catch (e) {
-    alert('提交评价失败')
+    // alert('提交评价失败')
     evaluateModal.value.submitting = false
   }
 }

@@ -28,7 +28,10 @@ export const useAuthStore = defineStore('auth', {
         return { success: true }
 
       } catch (error) {
-        console.error('登录报错详情:', error.response) // 方便你在 F12 控制台看
+        console.error('登录报错详情:', error)
+        console.error('Error response:', error.response)
+        console.error('Error data:', error.response?.data)
+        console.error('Error status:', error.response?.status)
         
         // --- ⭐ 核心修改：提取详细错误信息 ⭐ ---
         let errorMsg = "登录失败，请检查网络"
@@ -49,6 +52,8 @@ export const useAuthStore = defineStore('auth', {
                 // 把所有错误拼起来显示
                 errorMsg = JSON.stringify(data)
             }
+        } else if (!error.response) {
+            errorMsg = "无法连接到服务器，请检查后端服务是否启动"
         }
         
         // 登录失败，返回 success: false 和具体的错误消息

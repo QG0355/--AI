@@ -5,7 +5,7 @@
       <p>欢迎回来，{{ auth.currentUser?.name || auth.currentUser?.username }}</p>
     </div>
 
-    <StudentStarCarousel v-if="auth.currentUser?.role === 'maintenance'" />
+    </div>
 
     <div class="search-box">
       <input 
@@ -57,7 +57,6 @@
 import { ref, onMounted, computed } from 'vue'
 import axios from 'axios'
 import { useAuthStore } from '@/stores/auth'
-import StudentStarCarousel from '@/components/StudentStarCarousel.vue'
 import { apiUrl } from '@/config'
 
 const auth = useAuthStore()
@@ -83,25 +82,25 @@ async function fetchData() {
 }
 
 async function takeOrder(ticketId) {
-  if(!confirm("确定接单？")) return;
+  // if(!confirm("确定接单？")) return;
   try {
     await axios.post(apiUrl(`tickets/${ticketId}/handle/`), {
       type: 'assign', worker_id: auth.currentUser.id 
     }, { headers: { Authorization: `Token ${auth.token}` } })
-    alert("接单成功！")
+    // alert("接单成功！")
     fetchData()
-  } catch (e) { alert("接单失败") }
+  } catch (e) { /* alert("接单失败") */ }
 }
 
 async function finishOrder(ticketId) {
-  if(!confirm("确认完成？")) return;
+  // if(!confirm("确认完成？")) return;
   try {
     await axios.post(apiUrl(`tickets/${ticketId}/handle/`), {
       type: 'finish'
     }, { headers: { Authorization: `Token ${auth.token}` } })
-    alert("操作成功！")
+    // alert("操作成功！")
     fetchData()
-  } catch (e) { alert("操作失败") }
+  } catch (e) { /* alert("操作失败") */ }
 }
 
 function formatDate(iso) {
