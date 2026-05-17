@@ -9,7 +9,8 @@ from rest_framework.parsers import MultiPartParser, FormParser
 from django.db.models import Q, Avg, Count
 from django.db import IntegrityError
 from django.shortcuts import render, redirect, get_object_or_404
-from .models import Order, StudentStar, StudentProfile, MaintenanceProfile, AuditorProfile
+from django.http import JsonResponse
+from .models import ServiceStar, StudentProfile, MaintenanceProfile, AuditorProfile, AiSetting, AiChatLog
 from rest_framework import filters
 import os
 import json
@@ -19,7 +20,7 @@ from urllib.request import Request, urlopen
 from urllib.error import HTTPError, URLError
 
 from .models import CustomUser, Ticket
-from .serializers import UserSerializer, RegisterSerializer, TicketSerializer, StudentStarSerializer
+from .serializers import UserSerializer, RegisterSerializer, TicketSerializer, ServiceStarSerializer
 from .models import TicketAttachment
 
 
@@ -39,8 +40,6 @@ def get_current_user(request):
             if gender not in {'unknown', 'male', 'female'}:
                 return Response({"detail": "性别不合法"}, status=status.HTTP_400_BAD_REQUEST)
             updates['gender'] = gender
-        if 'avatar_url' in request.data:
-            updates['avatar_url'] = (request.data.get('avatar_url') or '').strip()
 
         if not updates:
             return Response({"detail": "没有可更新的字段"}, status=status.HTTP_400_BAD_REQUEST)
@@ -364,9 +363,9 @@ class TicketViewSet(viewsets.ModelViewSet):
         return Response({'id': att.id, 'media_type': att.media_type, 'url': url, 'original_name': att.original_name}, status=201)
 
 
-class StudentStarViewSet(viewsets.ReadOnlyModelViewSet):
-    queryset = StudentStar.objects.filter(is_active=True).order_by('sort_order', '-id')
-    serializer_class = StudentStarSerializer
+class ServiceStarViewSet(viewsets.ReadOnlyModelViewSet):
+    queryset = ServiceStar.objects.filter(is_active=True).order_by('sort_order', '-id')
+    serializer_class = ServiceStarSerializer
     permission_classes = [AllowAny]
 
 
@@ -395,6 +394,22 @@ def ai_chat(request):
         timeout = float(os.environ.get('AI_TIMEOUT') or 20)
     except Exception:
         timeout = 20.0
+
+    s = AiSetting.objects.order_by('-updated_at', '-id').first()
+    if s:
+        if not s.enabled:
+            return Response({"detail": "AI 助手已在后台关闭"}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+        if (s.api_base_url or '').strip():
+            base_url = s.api_base_url.strip().rstrip('/')
+        if (s.api_model or '').strip():
+            model = s.api_model.strip()
+        if (s.api_key or '').strip():
+            api_key = s.api_key.strip()
+        if getattr(s, 'timeout_seconds', None):
+            try:
+                timeout = float(s.timeout_seconds)
+            except Exception:
+                pass
 
     normalized = content.lower()
     category = "其他"
@@ -489,68 +504,89 @@ def ai_chat(request):
     answer += f"\n\n建议报修类别：{category}"
 
     warning = "重要提示：AI 提供的建议请仅供参考，以实际为准，不能盲目操作。"
+    
+    # 默认返回数据（fallback 模式）
+    res_data = {
+        "answer": answer,
+        "warning": warning,
+        "mode": "fallback",
+        "ai_enabled": bool(api_key)
+    }
+
     if api_key:
         if not base_url.startswith('https://'):
-            return Response({"answer": answer, "warning": warning, "mode": "fallback", "ai_enabled": False})
-
-        outbound_content = _mask_pii(content)
-        system_prompt = (
-            "你是校园报修AI助手。请用中文回答，回答要保守、谨慎、以安全为先。"
-            "你只能提供报修流程、信息收集建议与风险提示，不能提供任何带电检修、拆装、测电等操作指导。"
-            "遇到宿舍水电、安全风险、冒烟、漏电、跳闸等情况，必须提醒用户停止操作并通过平台提交报修等待处理。"
-            "不要编造事实或承诺。回答末尾不要重复免责声明，免责声明由前端单独展示。"
-        )
-        payload = {
-            "model": model,
-            "messages": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": outbound_content},
-            ],
-            "temperature": 0.2,
-        }
-        logger = logging.getLogger(__name__)
-        try:
-            req = Request(
-                f"{base_url}/chat/completions",
-                data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
-                headers={
-                    "Authorization": f"Bearer {api_key}",
-                    "Content-Type": "application/json",
-                },
-                method="POST",
+            # 如果配置不安全，直接走 fallback
+            pass
+        else:
+            outbound_content = _mask_pii(content)
+            system_prompt = (
+                "你是校园报修AI助手。请用中文回答，回答要保守、谨慎、以安全为先。"
+                "你只能提供报修流程、信息收集建议与风险提示，不能提供任何带电检修、拆装、测电等操作指导。"
+                "遇到宿舍水电、安全风险、冒烟、漏电、跳闸等情况，必须提醒用户停止操作并通过平台提交报修等待处理。"
+                "不要编造事实或承诺。回答末尾不要重复免责声明，免责声明由前端单独展示。"
             )
-            with urlopen(req, timeout=timeout) as resp:
-                data = json.loads(resp.read().decode("utf-8"))
-            msg = (((data.get("choices") or [{}])[0].get("message") or {}).get("content") or "").strip()
-            if msg:
-                return Response({"answer": msg, "warning": warning, "mode": "llm", "ai_enabled": True})
-        except HTTPError as e:
-            logger.warning("ai_chat_http_error", exc_info=True)
-            return Response({"answer": answer, "warning": warning, "mode": "fallback", "ai_enabled": True, "upstream_status": getattr(e, "code", None)}, status=200)
-        except URLError:
-            logger.warning("ai_chat_url_error", exc_info=True)
-            return Response({"answer": answer, "warning": warning, "mode": "fallback", "ai_enabled": True}, status=200)
-        except Exception:
-            logger.warning("ai_chat_error", exc_info=True)
-            return Response({"answer": answer, "warning": warning, "mode": "fallback", "ai_enabled": True}, status=200)
+            payload = {
+                "model": model,
+                "messages": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": outbound_content},
+                ],
+                "temperature": 0.2,
+            }
+            logger = logging.getLogger(__name__)
+            try:
+                req = Request(
+                    f"{base_url}/chat/completions",
+                    data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+                    headers={
+                        "Authorization": f"Bearer {api_key}",
+                        "Content-Type": "application/json",
+                    },
+                    method="POST",
+                )
+                with urlopen(req, timeout=timeout) as resp:
+                    data = json.loads(resp.read().decode("utf-8"))
+                msg = (((data.get("choices") or [{}])[0].get("message") or {}).get("content") or "").strip()
+                if msg:
+                    res_data = {"answer": msg, "warning": warning, "mode": "llm", "ai_enabled": True}
+            except HTTPError as e:
+                logger.warning("ai_chat_http_error", exc_info=True)
+                res_data["upstream_status"] = getattr(e, "code", None)
+            except URLError:
+                logger.warning("ai_chat_url_error", exc_info=True)
+            except Exception:
+                logger.warning("ai_chat_error", exc_info=True)
 
-    return Response({"answer": answer, "warning": warning, "mode": "fallback", "ai_enabled": False})
+    # 在返回之前，先在后台留个痕迹（保存日志）
+    try:
+        AiChatLog.objects.create(
+            user=user,
+            question=content,
+            answer=res_data.get("answer", ""),
+            mode=res_data.get("mode", ""),
+            ai_enabled=res_data.get("ai_enabled", True),
+            warning=res_data.get("warning", "")
+        )
+    except Exception as log_err:
+        logging.getLogger(__name__).error(f"Failed to save AiChatLog: {log_err}")
+
+    return Response(res_data)
 
 
-def change_status(request, order_id):
-    order = get_object_or_404(Order, id=order_id)
-
-    # 简单的状态流转逻辑
-    if order.status == 0:  # 待接单 -> 维修中
-        order.status = 1
-    elif order.status == 1:  # 维修中 -> 已完成
-        order.status = 2
-
-    order.save()
-
-    # 关键修改：返回 JSON 给 Vue，告诉它最新的状态是多少
-    return JsonResponse({
-        'code': 200,
-        'msg': '状态更新成功',
-        'new_status': order.status
-    })
+# def change_status(request, order_id):
+#     order = get_object_or_404(Order, id=order_id)
+#
+#     # 简单的状态流转逻辑
+#     if order.status == 0:  # 待接单 -> 维修中
+#         order.status = 1
+#     elif order.status == 1:  # 维修中 -> 已完成
+#         order.status = 2
+#
+#     order.save()
+#
+#     # 关键修改：返回 JSON 给 Vue，告诉它最新的状态是多少
+#     return JsonResponse({
+#         'code': 200,
+#         'msg': '状态更新成功',
+#         'new_status': order.status
+#     })

@@ -24,9 +24,15 @@
           <i class="fas fa-check-square"></i> 审核中心
         </RouterLink>
         
-        <RouterLink v-if="authStore.currentUser?.role === 'admin'" to="/admin" class="nav-btn">
+        <a
+          v-if="authStore.currentUser?.role === 'admin'"
+          class="nav-btn"
+          :href="`${API_BASE_URL}/admin/`"
+          target="_blank"
+          rel="noopener"
+        >
           <i class="fas fa-cogs"></i> 管理后台
-        </RouterLink>
+        </a>
 
         <RouterLink to="/profile" class="nav-btn">
           <i class="fas fa-id-badge"></i> 我的主页
@@ -67,6 +73,7 @@
 <script setup>
 import { useAuthStore } from '@/stores/auth'
 import { useRouter } from 'vue-router'
+import { API_BASE_URL } from '@/config'
 
 const authStore = useAuthStore()
 const router = useRouter()

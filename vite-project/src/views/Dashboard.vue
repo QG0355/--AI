@@ -105,7 +105,7 @@
         <h2>优秀维修之星</h2>
         <p>展示优秀维修人员事迹（由管理员维护）</p>
       </div>
-      <StudentStarCarousel />
+      <ServiceStarCarousel />
     </section>
 
     <section class="section gray">
@@ -138,7 +138,7 @@
 import { useAuthStore } from '@/stores/auth'
 import { useRouter } from 'vue-router'
 import { computed, ref, onMounted, watch } from 'vue'
-import StudentStarCarousel from '@/components/StudentStarCarousel.vue'
+import ServiceStarCarousel from '@/components/ServiceStarCarousel.vue'
 import axios from 'axios'
 import { apiUrl, API_BASE_URL } from '@/config'
 
@@ -150,7 +150,9 @@ const isStudent = computed(() => {
 })
 
 const showStarCarousel = computed(() => {
-  return authStore.currentUser?.role === 'student'
+  // 服务之星对学生、维修员、审核员均可见
+  const role = authStore.currentUser?.role
+  return ['student', 'maintenance', 'auditor', 'repair_admin'].includes(role)
 })
 
 const mainActionLabel = computed(() => {

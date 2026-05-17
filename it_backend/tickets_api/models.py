@@ -31,6 +31,10 @@ class CustomUser(AbstractUser):
     identity_id = models.CharField(max_length=50, unique=True, null=True, blank=True, verbose_name="身份ID")
     is_identity_bound = models.BooleanField(default=False, verbose_name="是否已绑定")
 
+    class Meta:
+        verbose_name = "用户信息"
+        verbose_name_plural = "用户信息"
+
     def __str__(self):
         return self.username
 
@@ -56,14 +60,14 @@ class Ticket(models.Model):
         ('rejected', '已驳回')
     ]
 
-    title = models.CharField(max_length=200)
-    category = models.CharField(max_length=50, choices=CATEGORY_CHOICES)
-    priority = models.CharField(max_length=10, choices=PRIORITY_CHOICES)
-    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending_dorm')
+    title = models.CharField(max_length=200, verbose_name="报修标题")
+    category = models.CharField(max_length=50, choices=CATEGORY_CHOICES, verbose_name="报修类别")
+    priority = models.CharField(max_length=10, choices=PRIORITY_CHOICES, verbose_name="优先级")
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending_dorm', verbose_name="报修状态")
     description = models.TextField(blank=True, null=True, verbose_name="故障描述")
 
-    location = models.CharField(max_length=200, blank=True, null=True)
-    contact = models.CharField(max_length=100, blank=True, null=True)
+    location = models.CharField(max_length=200, blank=True, null=True, verbose_name="维修地点")
+    contact = models.CharField(max_length=100, blank=True, null=True, verbose_name="联系电话")
 
     submitter = models.ForeignKey(CustomUser, on_delete=models.CASCADE, related_name='submitted_tickets',
                                   verbose_name="提交人")
@@ -75,42 +79,54 @@ class Ticket(models.Model):
     is_anonymous = models.BooleanField(default=False, verbose_name="是否匿名评价")
     rejected_reason = models.TextField(blank=True, null=True, verbose_name="驳回理由")
 
-    submitTime = models.DateTimeField(auto_now_add=True)
-    updateTime = models.DateTimeField(auto_now=True)
+    submitTime = models.DateTimeField(auto_now_add=True, verbose_name="提交时间")
+    updateTime = models.DateTimeField(auto_now=True, verbose_name="更新时间")
+
+    class Meta:
+        verbose_name = "报修订单"
+        verbose_name_plural = "报修订单"
 
     def __str__(self):
         return self.title
 
 
 class Comment(models.Model):
-    ticket = models.ForeignKey(Ticket, on_delete=models.CASCADE, related_name='comments')
-    user = models.ForeignKey(CustomUser, on_delete=models.CASCADE)
-    content = models.TextField()
-    time = models.DateTimeField(auto_now_add=True)
+    ticket = models.ForeignKey(Ticket, on_delete=models.CASCADE, related_name='comments', verbose_name="所属订单")
+    user = models.ForeignKey(CustomUser, on_delete=models.CASCADE, verbose_name="评论用户")
+    content = models.TextField(verbose_name="评论内容")
+    time = models.DateTimeField(auto_now_add=True, verbose_name="评论时间")
+
+    class Meta:
+        verbose_name = "订单评论"
+        verbose_name_plural = "订单评论"
 
 
-class Order(models.Model):
+# class Order(models.Model):
+#
+#     STATUS_CHOICES = (
+#         (0, '待接单'),  # 刚提交也是这个状态
+#         (1, '维修中'),  # 维修人员点击“接单”后
+#         (2, '已完成'),  # 修好后
+#     )
+#
+#     status = models.IntegerField(verbose_name="当前状态", choices=STATUS_CHOICES, default=0)
 
-    STATUS_CHOICES = (
-        (0, '待接单'),  # 刚提交也是这个状态
-        (1, '维修中'),  # 维修人员点击“接单”后
-        (2, '已完成'),  # 修好后
-    )
 
-    status = models.IntegerField(verbose_name="当前状态", choices=STATUS_CHOICES, default=0)
-
-
-class StudentStar(models.Model):
-    name = models.CharField(max_length=50, verbose_name="姓名")
-    major = models.CharField(max_length=100, blank=True, verbose_name="专业班级")
-    grade = models.CharField(max_length=50, blank=True, verbose_name="年级")
+class ServiceStar(models.Model):
+    name = models.CharField(max_length=50, verbose_name="维修人员姓名")
+    major = models.CharField(max_length=100, blank=True, verbose_name="所属班组/专业")
+    grade = models.CharField(max_length=50, blank=True, verbose_name="职称/岗位")
     honor = models.CharField(max_length=200, blank=True, verbose_name="荣誉称号")
-    description = models.TextField(blank=True, verbose_name="事迹简介")
-    score = models.DecimalField(max_digits=3, decimal_places=2, default=5.00, verbose_name="评分")
+    description = models.TextField(blank=True, verbose_name="服务事迹")
+    score = models.DecimalField(max_digits=3, decimal_places=2, default=5.00, verbose_name="服务评分")
     score_count = models.IntegerField(default=0, verbose_name="评价人数")
     avatar_url = models.URLField(blank=True, verbose_name="头像地址")
     sort_order = models.IntegerField(default=0, verbose_name="排序值")
     is_active = models.BooleanField(default=True, verbose_name="是否展示")
+
+    class Meta:
+        verbose_name = "服务之星"
+        verbose_name_plural = "服务之星"
 
     def __str__(self):
         return self.name
@@ -129,35 +145,96 @@ class TicketAttachment(models.Model):
         ('video', '视频'),
     )
 
-    ticket = models.ForeignKey(Ticket, on_delete=models.CASCADE, related_name='attachments')
-    media_type = models.CharField(max_length=10, choices=MEDIA_CHOICES)
-    file = models.FileField(upload_to=_ticket_media_upload_to)
-    original_name = models.CharField(max_length=255, blank=True, default='')
-    uploaded_at = models.DateTimeField(auto_now_add=True)
+    ticket = models.ForeignKey(Ticket, on_delete=models.CASCADE, related_name='attachments', verbose_name="所属订单")
+    media_type = models.CharField(max_length=10, choices=MEDIA_CHOICES, verbose_name="媒体类型")
+    file = models.FileField(upload_to=_ticket_media_upload_to, verbose_name="文件内容")
+    original_name = models.CharField(max_length=255, blank=True, default='', verbose_name="原始文件名")
+    uploaded_at = models.DateTimeField(auto_now_add=True, verbose_name="上传时间")
+
+    class Meta:
+        verbose_name = "订单附件"
+        verbose_name_plural = "订单附件"
 
     def __str__(self):
         return f"{self.ticket_id}-{self.media_type}"
 
 
+class AiSetting(models.Model):
+    enabled = models.BooleanField(default=True, verbose_name="启用 AI 助手")
+    api_base_url = models.CharField(max_length=255, blank=True, default='https://api.deepseek.com/v1', verbose_name="API Base URL")
+    api_model = models.CharField(max_length=100, blank=True, default='deepseek-chat', verbose_name="模型")
+    api_key = models.CharField(max_length=255, blank=True, default='', verbose_name="API Key")
+    timeout_seconds = models.IntegerField(default=30, verbose_name="超时(秒)")
+    updated_at = models.DateTimeField(auto_now=True, verbose_name="更新时间")
+
+    class Meta:
+        verbose_name = "AI 配置"
+        verbose_name_plural = "AI 配置"
+
+
+class AiChatLog(models.Model):
+    user = models.ForeignKey(CustomUser, on_delete=models.CASCADE, related_name='ai_chat_logs', verbose_name="用户")
+    question = models.TextField(verbose_name="用户问题")
+    answer = models.TextField(blank=True, default='', verbose_name="AI 回答")
+    mode = models.CharField(max_length=20, blank=True, default='', verbose_name="模式")
+    ai_enabled = models.BooleanField(default=True, verbose_name="AI 开关状态")
+    warning = models.TextField(blank=True, default='', verbose_name="提示")
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name="时间")
+
+    class Meta:
+        verbose_name = "AI 聊天记录"
+        verbose_name_plural = "AI 聊天记录"
+        ordering = ['-created_at']
+
+
 class StudentProfile(models.Model):
-    user = models.OneToOneField(CustomUser, on_delete=models.CASCADE, related_name='student_profile')
+    user = models.OneToOneField(CustomUser, on_delete=models.CASCADE, related_name='student_profile', verbose_name="关联用户")
     student_id = models.CharField(max_length=50, unique=True, verbose_name="学号")
+    submitted_count = models.IntegerField(default=0, verbose_name="提交报修单数")
+
+    class Meta:
+        verbose_name = "学生详情"
+        verbose_name_plural = "学生详情"
 
     def __str__(self):
         return self.student_id
 
 
 class MaintenanceProfile(models.Model):
-    user = models.OneToOneField(CustomUser, on_delete=models.CASCADE, related_name='maintenance_profile')
+    user = models.OneToOneField(CustomUser, on_delete=models.CASCADE, related_name='maintenance_profile', verbose_name="关联用户")
     worker_id = models.CharField(max_length=50, unique=True, verbose_name="维修人员工号")
+    finished_count = models.IntegerField(default=0, verbose_name="完成维修订单数")
+    rating = models.DecimalField(max_digits=3, decimal_places=2, default=5.00, verbose_name="评分")
+
+    class Meta:
+        verbose_name = "维修员详情"
+        verbose_name_plural = "维修员详情"
 
     def __str__(self):
         return self.worker_id
 
 
 class AuditorProfile(models.Model):
-    user = models.OneToOneField(CustomUser, on_delete=models.CASCADE, related_name='auditor_profile')
+    user = models.OneToOneField(CustomUser, on_delete=models.CASCADE, related_name='auditor_profile', verbose_name="关联用户")
     auditor_id = models.CharField(max_length=50, unique=True, verbose_name="审核员工号")
+    audited_count = models.IntegerField(default=0, verbose_name="审核保修单数")
+
+    class Meta:
+        verbose_name = "审核员详情"
+        verbose_name_plural = "审核员详情"
 
     def __str__(self):
         return self.auditor_id
+
+
+class AdminProfile(models.Model):
+    user = models.OneToOneField(CustomUser, on_delete=models.CASCADE, related_name='admin_profile', verbose_name="关联用户")
+    admin_id = models.CharField(max_length=50, unique=True, verbose_name="管理员编号")
+    permission_level = models.IntegerField(default=1, verbose_name="权限级别")
+
+    class Meta:
+        verbose_name = "管理员详情"
+        verbose_name_plural = "管理员详情"
+
+    def __str__(self):
+        return self.admin_id

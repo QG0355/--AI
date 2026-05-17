@@ -2,7 +2,7 @@
   <div class="profile-page">
     <div class="profile-card">
       <div class="profile-header">
-        <img class="avatar" :src="avatarPreview" alt="头像" />
+        <div class="avatar" :style="avatarStyle" aria-label="头像"></div>
         <div class="header-text">
           <h2>个人主页</h2>
           <div class="sub">
@@ -25,11 +25,6 @@
             <option value="male">男</option>
             <option value="female">女</option>
           </select>
-        </div>
-
-        <div class="field full">
-          <div class="label">头像链接</div>
-          <input v-model="form.avatar_url" type="text" placeholder="粘贴头像图片 URL（可留空）" />
         </div>
       </div>
 
@@ -92,7 +87,7 @@ import { DEFAULT_USER_AVATAR } from '@/assets/imageSources'
 const auth = useAuthStore()
 const router = useRouter()
 
-const form = ref({ name: '', gender: 'unknown', avatar_url: '' })
+const form = ref({ name: '', gender: 'unknown' })
 const saving = ref(false)
 const uploading = ref(false)
 const error = ref('')
@@ -111,14 +106,20 @@ const roleName = computed(() => {
   return map[auth.currentUser?.role] || '用户'
 })
 
-const avatarPreview = computed(() => {
-  return (
-    pickedAvatarPreview.value ||
-    auth.currentUser?.avatar ||
-    form.value.avatar_url ||
-    auth.currentUser?.avatar_url ||
-    DEFAULT_USER_AVATAR
-  )
+const avatarSource = computed(() => {
+  return pickedAvatarPreview.value || auth.currentUser?.avatar || DEFAULT_USER_AVATAR
+})
+
+const avatarStyle = computed(() => {
+  const v = avatarSource.value || DEFAULT_USER_AVATAR
+  if (typeof v === 'string' && v.trim().startsWith('#')) {
+    return { backgroundColor: v }
+  }
+  return {
+    backgroundImage: `url(${v})`,
+    backgroundSize: 'cover',
+    backgroundPosition: 'center'
+  }
 })
 
 function formatScore(v) {
@@ -139,8 +140,7 @@ onMounted(async () => {
   await auth.fetchUser()
   form.value = {
     name: auth.currentUser?.name || '',
-    gender: auth.currentUser?.gender || 'unknown',
-    avatar_url: auth.currentUser?.avatar_url || ''
+    gender: auth.currentUser?.gender || 'unknown'
   }
 })
 
@@ -175,7 +175,6 @@ async function uploadAvatar() {
       headers: { Authorization: `Token ${auth.token}` }
     })
     auth.currentUser = res.data
-    form.value.avatar_url = auth.currentUser?.avatar_url || ''
     success.value = '头像上传成功'
     pickedAvatar.value = null
     if (pickedAvatarPreview.value) {
@@ -199,8 +198,7 @@ async function save() {
       apiUrl('me/'),
       {
         name: form.value.name,
-        gender: form.value.gender,
-        avatar_url: form.value.avatar_url
+        gender: form.value.gender
       },
       { headers: { Authorization: `Token ${auth.token}` } }
     )
@@ -243,7 +241,6 @@ async function save() {
   width: 72px;
   height: 72px;
   border-radius: 14px;
-  object-fit: cover;
   border: 1px solid #f0d6e3;
 }
 

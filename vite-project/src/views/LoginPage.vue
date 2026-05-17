@@ -72,9 +72,16 @@ async function handleLogin() {
       return
     }
 
+    if (role === 'admin') {
+      // 管理员登录直接跳转到 Django 后端管理界面
+      const backendAdminUrl = `${import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000'}/admin/`
+      window.location.href = backendAdminUrl
+      return
+    }
+
     if (role === 'auditor') {
       router.push('/approval')
-    } else if (['maintenance', 'repair_admin', 'admin'].includes(role)) {
+    } else if (['maintenance', 'repair_admin'].includes(role)) {
       router.push('/workplace')
     } else {
       router.push('/')

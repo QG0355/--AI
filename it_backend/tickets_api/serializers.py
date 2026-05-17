@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import CustomUser, Ticket, StudentStar, TicketAttachment
+from .models import CustomUser, Ticket, TicketAttachment, ServiceStar
 
 
 class UserSerializer(serializers.ModelSerializer):
@@ -7,7 +7,7 @@ class UserSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = CustomUser
-        fields = ['id', 'username', 'name', 'gender', 'avatar_url', 'avatar', 'role', 'identity_id', 'is_identity_bound']
+        fields = ['id', 'username', 'name', 'gender', 'avatar', 'role', 'identity_id', 'is_identity_bound']
 
     def get_avatar(self, obj):
         request = self.context.get('request')
@@ -93,7 +93,7 @@ class TicketAttachmentSerializer(serializers.ModelSerializer):
         read_only_fields = ['id', 'ticket', 'media_type', 'original_name', 'uploaded_at']
 
 
-class StudentStarSerializer(serializers.ModelSerializer):
+class ServiceStarSerializer(serializers.ModelSerializer):
     class Meta:
-        model = StudentStar
+        model = ServiceStar
         fields = '__all__'
