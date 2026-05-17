@@ -543,7 +543,7 @@ def ai_chat(request):
         answer += "\n\n为了更准确一些，你可以补充：\n" + "\n".join([f"- {q}" for q in questions])
     answer += f"\n\n建议报修类别：{category}"
 
-    warning = "重要提示：AI 提供的建议请仅供参考，以实际为准，不能盲目操作。"
+    warning = "重要提示：AI 回答可能有误，仅供参考，以实际为准，不能盲目操作。"
     
     # 默认返回数据（fallback 模式）
     res_data = {
