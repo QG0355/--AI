@@ -283,11 +283,13 @@ class TicketViewSet(viewsets.ModelViewSet):
         if decision == 'approve':
             ticket.status = 'pending_dispatch'
             ticket.rejected_reason = None
+            ticket.auditor = user  # 记录审核员
             ticket.save()
             return Response({'status': 'Approved'})
         if decision == 'reject':
             ticket.status = 'rejected'
             ticket.rejected_reason = (request.data.get('reason') or '').strip() or None
+            ticket.auditor = user  # 记录审核员
             ticket.save()
             return Response({'status': 'Rejected'})
 

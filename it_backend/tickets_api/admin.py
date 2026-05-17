@@ -1,6 +1,19 @@
 from django.contrib import admin
 from django import forms
+from django.contrib.auth.models import Group
+from rest_framework.authtoken.models import Token
 from .models import Ticket, ServiceStar, CustomUser, TicketAttachment, AiChatLog, StudentProfile, MaintenanceProfile, AuditorProfile, AdminProfile
+
+# 隐藏不需要的默认模块（认证与授权、Token等）
+try:
+    admin.site.unregister(Group)
+except admin.sites.NotRegistered:
+    pass
+
+try:
+    admin.site.unregister(Token)
+except admin.sites.NotRegistered:
+    pass
 
 
 @admin.register(StudentProfile)
@@ -36,19 +49,39 @@ class AiChatLogAdmin(admin.ModelAdmin):
 
 @admin.register(Ticket)
 class TicketAdmin(admin.ModelAdmin):
-    list_display = ('id', 'title', 'category', 'status', 'submitter', 'assignee', 'submitTime')
+    list_display = ('id', 'title', 'category', 'status', 'submitter', 'assignee', 'auditor', 'submitTime')
     list_filter = ('category', 'status')
-    search_fields = ('title', 'description', 'location', 'submitter__username')
+    search_fields = ('title', 'description', 'location', 'submitter__username', 'auditor__username')
 
 
 @admin.register(ServiceStar)
 class ServiceStarAdmin(admin.ModelAdmin):
-    list_display = ('name', 'major', 'grade', 'honor', 'score', 'score_count', 'sort_order', 'is_active')
+    list_display = ('name', 'honor', 'score', 'score_count', 'sort_order', 'is_active')
     list_editable = ('score', 'score_count', 'sort_order', 'is_active')
-    list_filter = ('grade', 'is_active')
-    search_fields = ('name', 'major', 'honor')
+    list_filter = ('is_active',)
+    search_fields = ('name', 'honor')
     ordering = ('sort_order', '-id')
 
+
+class StudentProfileInline(admin.StackedInline):
+    model = StudentProfile
+    can_delete = False
+    verbose_name_plural = '学生详情'
+
+class MaintenanceProfileInline(admin.StackedInline):
+    model = MaintenanceProfile
+    can_delete = False
+    verbose_name_plural = '维修员详情'
+
+class AuditorProfileInline(admin.StackedInline):
+    model = AuditorProfile
+    can_delete = False
+    verbose_name_plural = '审核员详情'
+
+class AdminProfileInline(admin.StackedInline):
+    model = AdminProfile
+    can_delete = False
+    verbose_name_plural = '管理员详情'
 
 @admin.register(CustomUser)
 class CustomUserAdmin(admin.ModelAdmin):
@@ -58,6 +91,9 @@ class CustomUserAdmin(admin.ModelAdmin):
     list_filter = ('role', 'is_identity_bound')
     # 搜索框
     search_fields = ('username', 'name', 'identity_id')
+    
+    # 自动关联对应的详情表
+    inlines = [StudentProfileInline, MaintenanceProfileInline, AuditorProfileInline, AdminProfileInline]
     
     # 修改/添加用户时展示的字段（精简版）
     fieldsets = (

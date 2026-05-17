@@ -19,10 +19,6 @@
             </div>
           </div>
           <h3 class="star-name">{{ s.name }}</h3>
-          <p class="star-meta">
-            <span v-if="s.grade">{{ s.grade }}</span>
-            <span v-if="s.major">{{ s.major }}</span>
-          </p>
           <p class="star-honor" v-if="s.honor">{{ s.honor }}</p>
           <p class="star-score" v-if="s.score !== undefined && s.score !== null">
             评分 {{ formatScore(s.score) }}/5（{{ s.score_count || 0 }}人）
@@ -57,8 +53,6 @@ let timer = null
 const fallbackStars = [
   {
     name: '陈师傅',
-    grade: '后勤维修组',
-    major: '水电维护',
     honor: '本月抢单王',
     score: 4.9,
     score_count: 128,
@@ -67,8 +61,6 @@ const fallbackStars = [
   },
   {
     name: '黄师傅',
-    grade: '综合维修组',
-    major: '宿舍设施维护',
     honor: '服务之星',
     score: 4.8,
     score_count: 96,
@@ -77,8 +69,6 @@ const fallbackStars = [
   },
   {
     name: '梁师傅',
-    grade: '网络运维组',
-    major: '网络与多媒体设备',
     honor: '技术能手',
     score: 4.7,
     score_count: 74,

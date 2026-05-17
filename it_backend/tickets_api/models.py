@@ -73,6 +73,8 @@ class Ticket(models.Model):
                                   verbose_name="提交人")
     assignee = models.ForeignKey(CustomUser, on_delete=models.SET_NULL, null=True, blank=True,
                                  related_name='assigned_tickets', verbose_name="维修人员")
+    auditor = models.ForeignKey(CustomUser, on_delete=models.SET_NULL, null=True, blank=True,
+                                related_name='audited_tickets', verbose_name="审核员")
 
     evaluation = models.TextField(blank=True, null=True, verbose_name="学生评价")
     rating = models.IntegerField(default=5, verbose_name="评分(1-5)")
@@ -114,8 +116,6 @@ class Comment(models.Model):
 
 class ServiceStar(models.Model):
     name = models.CharField(max_length=50, verbose_name="维修人员姓名")
-    major = models.CharField(max_length=100, blank=True, verbose_name="所属班组/专业")
-    grade = models.CharField(max_length=50, blank=True, verbose_name="职称/岗位")
     honor = models.CharField(max_length=200, blank=True, verbose_name="荣誉称号")
     description = models.TextField(blank=True, verbose_name="服务事迹")
     score = models.DecimalField(max_digits=3, decimal_places=2, default=5.00, verbose_name="服务评分")
