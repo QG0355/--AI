@@ -1,8 +1,8 @@
 from django.contrib import admin
-from django import forms
 from django.contrib.auth.models import Group
 from rest_framework.authtoken.models import Token
-from .models import Ticket, ServiceStar, CustomUser, TicketAttachment, AiChatLog, StudentProfile, MaintenanceProfile, AuditorProfile, AdminProfile
+from .models import Ticket, ServiceStar, CustomUser, TicketAttachment, AiChatLog
+from .simple_sync import sync_user as sync_user_simple, sync_service_star as sync_service_star_simple
 
 # 隐藏不需要的默认模块（认证与授权、Token等）
 try:
@@ -14,26 +14,6 @@ try:
     admin.site.unregister(Token)
 except admin.sites.NotRegistered:
     pass
-
-
-@admin.register(StudentProfile)
-class StudentProfileAdmin(admin.ModelAdmin):
-    list_display = ('user', 'student_id', 'submitted_count')
-
-
-@admin.register(MaintenanceProfile)
-class MaintenanceProfileAdmin(admin.ModelAdmin):
-    list_display = ('user', 'worker_id', 'finished_count', 'rating')
-
-
-@admin.register(AuditorProfile)
-class AuditorProfileAdmin(admin.ModelAdmin):
-    list_display = ('user', 'auditor_id', 'audited_count')
-
-
-@admin.register(AdminProfile)
-class AdminProfileAdmin(admin.ModelAdmin):
-    list_display = ('user', 'admin_id', 'permission_level')
 
 
 @admin.register(AiChatLog)
@@ -62,40 +42,19 @@ class ServiceStarAdmin(admin.ModelAdmin):
     search_fields = ('name', 'honor')
     ordering = ('sort_order', '-id')
 
+    def save_model(self, request, obj, form, change):
+        super().save_model(request, obj, form, change)
+        try:
+            sync_service_star_simple(obj)
+        except Exception:
+            pass
 
-class StudentProfileInline(admin.StackedInline):
-    model = StudentProfile
-    can_delete = False
-    verbose_name_plural = '学生详情'
-
-class MaintenanceProfileInline(admin.StackedInline):
-    model = MaintenanceProfile
-    can_delete = False
-    verbose_name_plural = '维修员详情'
-
-class AuditorProfileInline(admin.StackedInline):
-    model = AuditorProfile
-    can_delete = False
-    verbose_name_plural = '审核员详情'
-
-class AdminProfileInline(admin.StackedInline):
-    model = AdminProfile
-    can_delete = False
-    verbose_name_plural = '管理员详情'
 
 @admin.register(CustomUser)
 class CustomUserAdmin(admin.ModelAdmin):
-    # 列表页展示的字段
     list_display = ('username', 'name', 'role', 'identity_id', 'is_identity_bound')
-    # 右侧筛选器
     list_filter = ('role', 'is_identity_bound')
-    # 搜索框
     search_fields = ('username', 'name', 'identity_id')
-    
-    # 自动关联对应的详情表
-    inlines = [StudentProfileInline, MaintenanceProfileInline, AuditorProfileInline, AdminProfileInline]
-    
-    # 修改/添加用户时展示的字段（精简版）
     fieldsets = (
         ('基础信息', {
             'fields': ('username', 'password', 'name', 'gender', 'role')
@@ -107,6 +66,13 @@ class CustomUserAdmin(admin.ModelAdmin):
             'fields': ('avatar', 'avatar_url')
         }),
     )
+
+    def get_form(self, request, obj=None, change=False, **kwargs):
+        form = super().get_form(request, obj, change, **kwargs)
+        avatar_url_field = form.base_fields.get('avatar_url')
+        if avatar_url_field:
+            avatar_url_field.required = False
+        return form
 
     def save_model(self, request, obj, form, change):
         # 如果是新创建用户且设置了密码，需要加密保存
@@ -120,6 +86,10 @@ class CustomUserAdmin(admin.ModelAdmin):
             obj.is_staff = False
             
         super().save_model(request, obj, form, change)
+        try:
+            sync_user_simple(obj)
+        except Exception:
+            pass
 
 
 @admin.register(TicketAttachment)

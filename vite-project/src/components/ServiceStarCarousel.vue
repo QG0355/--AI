@@ -6,7 +6,12 @@
     </div>
 
     <div class="star-carousel" v-if="stars.length">
-      <div class="star-track">
+      <div
+        class="star-track"
+        :style="{
+          transform: `translateX(-${activeIndex * 100}%)`
+        }"
+      >
         <div
           v-for="(s, index) in stars"
           :key="s.id || index"
@@ -148,11 +153,12 @@ onBeforeUnmount(() => {
 
 .star-carousel {
   position: relative;
+  overflow: hidden;
 }
 
 .star-track {
   display: flex;
-  overflow: hidden;
+  transition: transform 0.6s ease;
 }
 
 .star-card {

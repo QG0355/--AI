@@ -92,6 +92,15 @@ DATABASES = {
     }
 }
 
+DATABASES['simple'] = {
+    'ENGINE': DATABASES['default']['ENGINE'],
+    'NAME': 'BiShe_simple',
+    'USER': DATABASES['default']['USER'],
+    'PASSWORD': DATABASES['default']['PASSWORD'],
+    'HOST': DATABASES['default']['HOST'],
+    'PORT': DATABASES['default']['PORT'],
+}
+
 
 # Password validation
 # https://docs.djangoproject.com/en/4.2/ref/settings/#auth-password-validators

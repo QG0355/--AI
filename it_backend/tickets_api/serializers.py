@@ -11,7 +11,7 @@ class UserSerializer(serializers.ModelSerializer):
 
     def get_avatar(self, obj):
         request = self.context.get('request')
-        url = obj.avatar.url if getattr(obj, 'avatar', None) else ''
+        url = getattr(obj, 'avatar_display', '') or ''
         if request and url and not url.startswith('http'):
             url = request.build_absolute_uri(url)
         return url

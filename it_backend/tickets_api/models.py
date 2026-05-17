@@ -38,6 +38,15 @@ class CustomUser(AbstractUser):
     def __str__(self):
         return self.username
 
+    @property
+    def avatar_display(self):
+        if self.avatar:
+            try:
+                return self.avatar.url
+            except Exception:
+                return ''
+        return self.avatar_url or ''
+
 
 class Ticket(models.Model):
     CATEGORY_CHOICES = [
@@ -69,12 +78,28 @@ class Ticket(models.Model):
     location = models.CharField(max_length=200, blank=True, null=True, verbose_name="维修地点")
     contact = models.CharField(max_length=100, blank=True, null=True, verbose_name="联系电话")
 
-    submitter = models.ForeignKey(CustomUser, on_delete=models.CASCADE, related_name='submitted_tickets',
-                                  verbose_name="提交人")
-    assignee = models.ForeignKey(CustomUser, on_delete=models.SET_NULL, null=True, blank=True,
-                                 related_name='assigned_tickets', verbose_name="维修人员")
-    auditor = models.ForeignKey(CustomUser, on_delete=models.SET_NULL, null=True, blank=True,
-                                related_name='audited_tickets', verbose_name="审核员")
+    submitter = models.ForeignKey(
+        CustomUser,
+        on_delete=models.CASCADE,
+        related_name='submitted_tickets',
+        verbose_name="提交人",
+    )
+    assignee = models.ForeignKey(
+        CustomUser,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='assigned_tickets',
+        verbose_name="维修人员",
+    )
+    auditor = models.ForeignKey(
+        CustomUser,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='audited_tickets',
+        verbose_name="审核员",
+    )
 
     evaluation = models.TextField(blank=True, null=True, verbose_name="学生评价")
     rating = models.IntegerField(default=5, verbose_name="评分(1-5)")

@@ -22,6 +22,7 @@ from urllib.error import HTTPError, URLError
 from .models import CustomUser, Ticket
 from .serializers import UserSerializer, RegisterSerializer, TicketSerializer, ServiceStarSerializer
 from .models import TicketAttachment
+from .simple_sync import sync_user as sync_user_simple, sync_ticket as sync_ticket_simple
 
 
 @api_view(['GET', 'PATCH'])
@@ -108,6 +109,11 @@ def bind_identity(request):
     elif role in ['auditor', 'admin']:
         AuditorProfile.objects.update_or_create(user=user, defaults={'auditor_id': identity_id})
 
+    try:
+        sync_user_simple(user)
+    except Exception:
+        pass
+
     return Response({"detail": "Bind successful", "user": UserSerializer(user, context={'request': request}).data})
 
 
@@ -168,7 +174,11 @@ class TicketViewSet(viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         # 新建工单默认进入“待审核员审核”状态
-        serializer.save(submitter=self.request.user, status='pending_dorm')
+        ticket = serializer.save(submitter=self.request.user, status='pending_dorm')
+        try:
+            sync_ticket_simple(ticket)
+        except Exception:
+            pass
 
     def perform_update(self, serializer):
         ticket = self.get_object()
@@ -178,9 +188,17 @@ class TicketViewSet(viewsets.ModelViewSet):
                 raise PermissionDenied('只能修改自己提交的工单')
             if ticket.status != 'rejected':
                 raise PermissionDenied('仅可修改被驳回的工单')
-            serializer.save(status='pending_dorm', rejected_reason=None)
+            updated = serializer.save(status='pending_dorm', rejected_reason=None)
+            try:
+                sync_ticket_simple(updated)
+            except Exception:
+                pass
             return
-        serializer.save()
+        updated = serializer.save()
+        try:
+            sync_ticket_simple(updated)
+        except Exception:
+            pass
 
     def destroy(self, request, *args, **kwargs):
         ticket = self.get_object()
@@ -229,6 +247,10 @@ class TicketViewSet(viewsets.ModelViewSet):
                 ticket.assignee = worker
                 ticket.status = 'repairing'
                 ticket.save()
+                try:
+                    sync_ticket_simple(ticket)
+                except Exception:
+                    pass
                 return Response({'status': 'Dispatched'})
             except CustomUser.DoesNotExist:
                 return Response({'error': 'Worker not found'}, status=400)
@@ -244,6 +266,10 @@ class TicketViewSet(viewsets.ModelViewSet):
 
             ticket.status = 'finished'
             ticket.save()
+            try:
+                sync_ticket_simple(ticket)
+            except Exception:
+                pass
             return Response({'status': 'Repair Finished'})
 
         if action_type == 'evaluate':
@@ -268,6 +294,10 @@ class TicketViewSet(viewsets.ModelViewSet):
             ticket.is_anonymous = is_anonymous
             ticket.status = 'closed'
             ticket.save()
+            try:
+                sync_ticket_simple(ticket)
+            except Exception:
+                pass
             return Response({'status': 'Closed'})
 
         return Response({'error': 'Unknown action'}, status=400)
@@ -285,12 +315,20 @@ class TicketViewSet(viewsets.ModelViewSet):
             ticket.rejected_reason = None
             ticket.auditor = user  # 记录审核员
             ticket.save()
+            try:
+                sync_ticket_simple(ticket)
+            except Exception:
+                pass
             return Response({'status': 'Approved'})
         if decision == 'reject':
             ticket.status = 'rejected'
             ticket.rejected_reason = (request.data.get('reason') or '').strip() or None
             ticket.auditor = user  # 记录审核员
             ticket.save()
+            try:
+                sync_ticket_simple(ticket)
+            except Exception:
+                pass
             return Response({'status': 'Rejected'})
 
         return Response({'detail': '未知操作'}, status=status.HTTP_400_BAD_REQUEST)
