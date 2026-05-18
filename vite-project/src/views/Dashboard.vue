@@ -82,12 +82,12 @@
           <p>用自然语言咨询报修流程和注意事项，结果仅供参考，请以实际为准。</p>
         </div>
         
-        <div class="entry-card" @click="$router.push('/workplace')" v-if="['maintenance', 'repair_admin', 'admin'].includes(authStore.currentUser?.role)">
+        <div class="entry-card" @click="$router.push('/workplace')" v-if="['maintenance', 'repair_admin', 'admin', 'auditor'].includes(authStore.currentUser?.role)">
           <div class="entry-icon primary">
             <i class="fas fa-briefcase"></i>
           </div>
           <h3>工作台</h3>
-          <p>查看待办任务，进行接单、维修处理或任务管理。</p>
+          <p>查看待办任务，进行派单、维修处理或任务管理。</p>
         </div>
         
         <div class="entry-card" @click="$router.push('/approval')" v-if="['admin', 'auditor'].includes(authStore.currentUser?.role)">

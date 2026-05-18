@@ -1,7 +1,8 @@
 <template>
   <div class="workspace-container">
     <div class="page-header">
-      <h2>🛠️ 维修师傅工作台</h2>
+      <h2 v-if="isDispatcher">📌 派单工作台</h2>
+      <h2 v-else>🛠️ 维修师傅工作台</h2>
       <p>欢迎回来，{{ auth.currentUser?.name || auth.currentUser?.username }}</p>
     </div>
 
@@ -15,24 +16,33 @@
       <button @click="fetchData" class="btn-search">搜索</button>
     </div>
 
-    <div class="section">
-      <h3 class="section-title">📢 待接单大厅 (抢单池)</h3>
-      <div v-if="pendingTickets.length === 0" class="empty-box">暂无新报修</div>
-      <div class="task-grid">
+    <div class="section" v-if="isDispatcher">
+      <h3 class="section-title">📢 待派单工单</h3>
+      <div v-if="pendingTickets.length === 0" class="empty-box">暂无待派单工单</div>
+      <div v-else class="task-grid">
         <div v-for="t in pendingTickets" :key="t.id" class="task-card pending">
           <div class="card-top">
-            <span class="tag">待接单</span>
+            <span class="tag">待派单</span>
             <span class="time">{{ formatDate(t.submitTime) }}</span>
           </div>
           <h4>{{ t.title }}</h4>
           <p class="desc">{{ t.description }}</p>
           <p class="loc"><i class="fas fa-map-marker-alt"></i> {{ t.location }}</p>
-          <button @click="takeOrder(t.id)" class="btn-take">🚀 我要接单</button>
+
+          <div class="dispatch-row">
+            <select v-model="dispatchTo[t.id]" class="dispatch-select">
+              <option value="">请选择维修人员</option>
+              <option v-for="w in maintenanceUsers" :key="w.id" :value="w.id">
+                {{ w.name }}{{ w.identity_id ? `（${w.identity_id}）` : '' }}
+              </option>
+            </select>
+            <button @click="dispatchTicket(t.id)" class="btn-dispatch">派单</button>
+          </div>
         </div>
       </div>
     </div>
 
-    <div class="section">
+    <div class="section" v-if="!isDispatcher">
       <h3 class="section-title">🔧 我的维修任务</h3>
       <div v-if="myRepairingTickets.length === 0" class="empty-box">您当前没有正在进行的维修</div>
       <div class="task-grid">
@@ -49,7 +59,7 @@
       </div>
     </div>
 
-    <div class="section">
+    <div class="section" v-if="!isDispatcher">
       <h3 class="section-title">🕒 待评价工单（已完成）</h3>
       <div v-if="myFinishedTickets.length === 0" class="empty-box">暂无待评价工单</div>
       <div class="task-grid">
@@ -66,7 +76,7 @@
       </div>
     </div>
 
-    <div class="section">
+    <div class="section" v-if="!isDispatcher">
       <h3 class="section-title">⭐ 已结单工单（含评价）</h3>
       <div v-if="myClosedTickets.length === 0" class="empty-box">暂无已结单工单</div>
       <div class="task-grid">
@@ -87,7 +97,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, computed, watch } from 'vue'
 import axios from 'axios'
 import { useAuthStore } from '@/stores/auth'
 import { apiUrl } from '@/config'
@@ -95,13 +105,29 @@ import { apiUrl } from '@/config'
 const auth = useAuthStore()
 const allTickets = ref([])
 const searchText = ref('') // 搜索变量
+const maintenanceUsers = ref([])
+const dispatchTo = ref({})
+
+const isDispatcher = computed(() => ['admin', 'auditor'].includes(auth.currentUser?.role))
 
 const pendingTickets = computed(() => allTickets.value.filter(t => t.status === 'pending_dispatch'))
 const myRepairingTickets = computed(() => allTickets.value.filter(t => t.status === 'repairing' && t.assignee === auth.currentUser?.id))
 const myFinishedTickets = computed(() => allTickets.value.filter(t => t.status === 'finished' && t.assignee === auth.currentUser?.id))
 const myClosedTickets = computed(() => allTickets.value.filter(t => t.status === 'closed' && t.assignee === auth.currentUser?.id))
 
-onMounted(() => { fetchData() })
+onMounted(async () => {
+  await fetchData()
+})
+
+watch(
+  () => isDispatcher.value,
+  async (val) => {
+    if (val) {
+      await fetchMaintenanceUsers()
+    }
+  },
+  { immediate: true }
+)
 
 async function fetchData() {
   try {
@@ -116,15 +142,32 @@ async function fetchData() {
   }
 }
 
-async function takeOrder(ticketId) {
-  // if(!confirm("确定接单？")) return;
+async function fetchMaintenanceUsers() {
+  try {
+    const res = await axios.get(apiUrl('maintenance-users/'), {
+      headers: { Authorization: `Token ${auth.token}` }
+    })
+    maintenanceUsers.value = Array.isArray(res.data) ? res.data : []
+  } catch (e) {
+    maintenanceUsers.value = []
+  }
+}
+
+async function dispatchTicket(ticketId) {
+  const workerId = dispatchTo.value?.[ticketId]
+  if (!workerId) {
+    alert('请选择维修人员')
+    return
+  }
   try {
     await axios.post(apiUrl(`tickets/${ticketId}/handle/`), {
-      type: 'assign', worker_id: auth.currentUser.id 
+      type: 'assign',
+      worker_id: workerId
     }, { headers: { Authorization: `Token ${auth.token}` } })
-    // alert("接单成功！")
-    fetchData()
-  } catch (e) { /* alert("接单失败") */ }
+    await fetchData()
+  } catch (e) {
+    alert('派单失败')
+  }
 }
 
 async function finishOrder(ticketId) {
@@ -173,4 +216,7 @@ h4 { margin: 0 0 10px 0; font-size: 16px; color: #333; }
 .eval.empty { color: #9ca3af; }
 .btn-take { margin-top: 15px; width: 100%; padding: 10px; background: #667eea; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; transition: background 0.2s;}
 .btn-finish { margin-top: 15px; width: 100%; padding: 10px; background: #2ecc71; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; }
+.dispatch-row { display: flex; gap: 10px; margin-top: 12px; }
+.dispatch-select { flex: 1; padding: 10px 12px; border: 1px solid #ddd; border-radius: 8px; font-size: 14px; background: white; }
+.btn-dispatch { width: 92px; padding: 10px; background: #667eea; color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; }
 </style>

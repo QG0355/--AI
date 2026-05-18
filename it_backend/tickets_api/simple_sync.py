@@ -171,4 +171,3 @@ def sync_service_star(star):
             1 if bool(getattr(star, 'is_active', True)) else 0,
         ],
     )
-

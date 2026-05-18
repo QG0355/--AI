@@ -105,6 +105,9 @@ class Ticket(models.Model):
     rating = models.IntegerField(default=5, verbose_name="评分(1-5)")
     is_anonymous = models.BooleanField(default=False, verbose_name="是否匿名评价")
     rejected_reason = models.TextField(blank=True, null=True, verbose_name="驳回理由")
+    response_time = models.DateTimeField(blank=True, null=True, verbose_name="响应时间")
+    repair_result = models.TextField(blank=True, null=True, verbose_name="维修结果")
+    materials_used = models.TextField(blank=True, null=True, verbose_name="耗材使用")
 
     submitTime = models.DateTimeField(auto_now_add=True, verbose_name="提交时间")
     updateTime = models.DateTimeField(auto_now=True, verbose_name="更新时间")

@@ -10,6 +10,7 @@ from django.db.models import Q, Avg, Count
 from django.db import IntegrityError
 from django.shortcuts import render, redirect, get_object_or_404
 from django.http import JsonResponse
+from django.utils import timezone
 from .models import ServiceStar, StudentProfile, MaintenanceProfile, AuditorProfile, AiSetting, AiChatLog
 from rest_framework import filters
 import os
@@ -72,6 +73,25 @@ class RegisterView(generics.CreateAPIView):
     queryset = CustomUser.objects.all()
     serializer_class = RegisterSerializer
     permission_classes = [AllowAny]
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_maintenance_users(request):
+    user = request.user
+    if user.role not in ['admin', 'auditor']:
+        return Response({'detail': '无权限查看维修人员列表'}, status=status.HTTP_403_FORBIDDEN)
+    qs = CustomUser.objects.filter(role='maintenance').order_by('id')
+    data = [
+        {
+            'id': u.id,
+            'name': (u.name or u.username),
+            'identity_id': u.identity_id,
+            'username': u.username,
+        }
+        for u in qs
+    ]
+    return Response(data)
 
 
 # 3. Identity Bind View (Kept to prevent 404s from frontend, though logic is simplified)
@@ -160,9 +180,9 @@ class TicketViewSet(viewsets.ModelViewSet):
         # Admin 和 审核员 作为审核 / 管理角色，看到全部工单
         if user.role in ['admin', 'auditor']:
             pass
-        # 维修人员看到所有工单，便于抢单
+        # 维修人员仅看到指派给自己的工单
         elif user.role == 'maintenance':
-            pass
+            qs = qs.filter(assignee=user)
         # 其他角色只看到自己提交的工单
         else:
             qs = qs.filter(submitter=user)
@@ -207,7 +227,7 @@ class TicketViewSet(viewsets.ModelViewSet):
         if user.role == 'student':
             if ticket.submitter != user:
                 return Response({'detail': '只能撤销自己提交的工单'}, status=status.HTTP_403_FORBIDDEN)
-            if ticket.status not in ['pending_dorm', 'pending_dispatch', 'rejected']:
+            if ticket.status not in ['pending_dorm', 'rejected']:
                 return Response({'detail': '当前状态不可撤销'}, status=status.HTTP_400_BAD_REQUEST)
         elif user.role in ['admin', 'auditor']:
             pass
@@ -233,19 +253,20 @@ class TicketViewSet(viewsets.ModelViewSet):
 
         # Dispatch (Assign)
         if action_type == 'assign':
-            # 只有管理员、审核员可以派单；维修工可以抢单（如果允许自己给自己派）
-            if user.role not in ['admin', 'auditor', 'maintenance']:
+            if user.role not in ['admin', 'auditor']:
                  return Response({'detail': '无权派单'}, status=status.HTTP_403_FORBIDDEN)
             
             worker_id = request.data.get('worker_id')
-            # 如果是维修工抢单，worker_id 应该是自己
-            if user.role == 'maintenance':
-                worker_id = user.id
+            if not worker_id:
+                return Response({'detail': '请选择维修人员'}, status=status.HTTP_400_BAD_REQUEST)
 
             try:
                 worker = CustomUser.objects.get(pk=worker_id)
+                if worker.role != 'maintenance':
+                    return Response({'detail': '派单对象必须是维修人员'}, status=status.HTTP_400_BAD_REQUEST)
                 ticket.assignee = worker
                 ticket.status = 'repairing'
+                ticket.response_time = timezone.now()
                 ticket.save()
                 try:
                     sync_ticket_simple(ticket)
@@ -265,6 +286,8 @@ class TicketViewSet(viewsets.ModelViewSet):
                 return Response({'detail': '无权完成工单'}, status=status.HTTP_403_FORBIDDEN)
 
             ticket.status = 'finished'
+            ticket.repair_result = (request.data.get('repair_result') or '').strip() or None
+            ticket.materials_used = (request.data.get('materials_used') or '').strip() or None
             ticket.save()
             try:
                 sync_ticket_simple(ticket)

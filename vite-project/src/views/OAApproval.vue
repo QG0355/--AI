@@ -47,7 +47,7 @@
             <div class="desc">{{ item.description || '未填写详细描述' }}</div>
           </div>
           <div class="card-actions">
-            <button @click="review(item.id, 'approve')" class="btn-ok">通过并进入派单</button>
+            <button @click="review(item.id, 'approve')" class="btn-ok">通过并去派单</button>
             <button @click="openReject(item.id)" class="btn-no">驳回</button>
           </div>
         </div>
@@ -73,9 +73,11 @@
 import { ref, onMounted } from 'vue'
 import axios from 'axios'
 import { useAuthStore } from '@/stores/auth'
+import { useRouter } from 'vue-router'
 import { apiUrl } from '@/config'
 
 const auth = useAuthStore()
+const router = useRouter()
 const list = ref([])
 const rejectModal = ref({ open: false, ticketId: null, reason: '', submitting: false })
 
@@ -97,6 +99,9 @@ async function review(id, decision) {
   )
   // alert('操作成功')
   list.value = list.value.filter(i => i.id !== id)
+  if (decision === 'approve') {
+    router.push('/workplace')
+  }
 }
 
 function openReject(id) {

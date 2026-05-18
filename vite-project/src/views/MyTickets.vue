@@ -49,7 +49,7 @@
           <button @click="openAttachments(ticket.attachments)" class="btn-text-primary">查看附件（{{ ticket.attachments.length }}）</button>
         </div>
 
-        <div class="card-actions" v-if="ticket.status === 'pending_dispatch' && auth.currentUser?.role === 'student'">
+        <div class="card-actions" v-if="ticket.status === 'pending_dorm' && auth.currentUser?.role === 'student'">
           <button @click="deleteTicket(ticket.id)" class="btn-text-danger">撤销工单</button>
         </div>
 
