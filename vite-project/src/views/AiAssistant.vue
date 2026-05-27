@@ -2,9 +2,11 @@
   <div class="ai-page">
     <div class="ai-card">
       <div class="ai-header">
-        <h2>AI 报修助手</h2>
+        <div class="header-row">
+          <h2>AI 报修助手</h2>
+          <button class="btn-clear" type="button" @click="clearChat" :disabled="loading">清空对话</button>
+        </div>
         <p>用于了解报修流程与注意事项，结果仅供参考</p>
-        <p v-if="aiStatus" class="ai-status">{{ aiStatus }}</p>
       </div>
 
       <div class="warning-banner">
@@ -34,6 +36,14 @@
             </div>
             <div class="bubble">
               <p>{{ m.content }}</p>
+              <button 
+                v-if="m.role === 'assistant' && index === lastAssistantIndex && index > 1" 
+                @click="generateTicketFromAi" 
+                class="btn-ai-ticket"
+                :disabled="loading"
+              >
+                <i class="fas fa-magic"></i> 一键帮我填报修单
+              </button>
             </div>
           </div>
 
@@ -59,7 +69,7 @@
           ></textarea>
           <div class="input-actions">
             <button type="submit" :disabled="loading || !input.trim()">
-              {{ loading ? '正在思考...' : '发送' }}
+              {{ loading ? '发送中...' : '发送' }}
             </button>
           </div>
         </form>
@@ -69,14 +79,16 @@
 </template>
 
 <script setup>
-import { ref, nextTick } from 'vue'
+import { ref, nextTick, computed, watch } from 'vue'
 import axios from 'axios'
 import { useAuthStore } from '@/stores/auth'
 import { apiUrl } from '@/config'
+import { useRouter } from 'vue-router'
 
 const auth = useAuthStore()
+const router = useRouter()
 
-const messages = ref([
+const BASE_MESSAGES = [
   {
     role: 'assistant',
     content:
@@ -87,13 +99,67 @@ const messages = ref([
     content:
       '重要提示：AI 回答可能有误，仅供参考，以实际为准，不能盲目操作。涉及宿舍水电、用电安全、维修操作等，请勿自行检修，请通过平台提交报修等待处理。'
   }
-])
+]
+
+function getStorageKey() {
+  const uid = auth.currentUser?.id
+  if (!uid) return ''
+  return `ai_chat_messages_user_${uid}`
+}
+
+function normalizeMessages(list) {
+  const arr = Array.isArray(list) ? list : []
+  const cleaned = arr
+    .filter(m => m && typeof m === 'object')
+    .map(m => ({
+      role: String(m.role || ''),
+      content: String(m.content || '')
+    }))
+    .filter(m => m.role && m.content)
+  return cleaned.length ? cleaned : BASE_MESSAGES
+}
+
+function loadMessages() {
+  const key = getStorageKey()
+  if (!key) {
+    messages.value = [...BASE_MESSAGES]
+    return
+  }
+  try {
+    const raw = sessionStorage.getItem(key)
+    if (!raw) {
+      messages.value = [...BASE_MESSAGES]
+      return
+    }
+    const parsed = JSON.parse(raw)
+    messages.value = normalizeMessages(parsed)
+  } catch (e) {
+    messages.value = [...BASE_MESSAGES]
+  }
+}
+
+function persistMessages() {
+  const key = getStorageKey()
+  if (!key) return
+  try {
+    const clipped = (messages.value || []).slice(-60)
+    sessionStorage.setItem(key, JSON.stringify(clipped))
+  } catch (e) {}
+}
+
+const messages = ref([...BASE_MESSAGES])
 
 const input = ref('')
 const loading = ref(false)
 const error = ref('')
-const aiStatus = ref('')
 const messageList = ref(null)
+
+const lastAssistantIndex = computed(() => {
+  for (let i = messages.value.length - 1; i >= 0; i--) {
+    if (messages.value[i]?.role === 'assistant') return i
+  }
+  return -1
+})
 
 function scrollToBottom() {
   nextTick(() => {
@@ -103,6 +169,31 @@ function scrollToBottom() {
     }
   })
 }
+
+function clearChat() {
+  messages.value = [...BASE_MESSAGES]
+  input.value = ''
+  error.value = ''
+  persistMessages()
+  scrollToBottom()
+}
+
+watch(
+  () => auth.currentUser?.id,
+  () => {
+    loadMessages()
+    scrollToBottom()
+  },
+  { immediate: true }
+)
+
+watch(
+  messages,
+  () => {
+    persistMessages()
+  },
+  { deep: true }
+)
 
 async function handleSend() {
   if (!input.value.trim()) return
@@ -134,21 +225,10 @@ async function handleSend() {
 
     const answer = res.data.answer
     const warning = res.data.warning
-    const mode = res.data.mode
-    const aiEnabled = res.data.ai_enabled
-    
     messages.value.push({ role: 'assistant', content: answer })
     if (warning) {
        messages.value.push({ role: 'notice', content: warning })
     }
-    if (mode === 'llm') {
-      aiStatus.value = '已连接 AI'
-    } else if (mode === 'fallback' && aiEnabled) {
-      aiStatus.value = 'AI 暂时不可用，已切换为内置建议'
-    } else {
-      aiStatus.value = '未配置 AI Key，当前为内置建议'
-    }
-    
   } catch (e) {
     console.error(e)
     const msg = e?.response?.data?.detail || 'AI 暂时无法回应，请稍后再试。'
@@ -157,6 +237,24 @@ async function handleSend() {
   } finally {
     loading.value = false
     scrollToBottom()
+  }
+}
+async function generateTicketFromAi() {
+  try {
+    loading.value = true
+    const res = await axios.post(apiUrl('ai/generate_ticket/'), {
+      chat_history: messages.value
+    }, {
+      headers: { Authorization: `Token ${auth.token}` }
+    })
+    
+    const { title, category, description, priority } = res.data
+    sessionStorage.setItem('ai_ticket_data', JSON.stringify({ title, category, description, priority }))
+    router.push('/submit?from_ai=1')
+  } catch (e) {
+    alert('生成报修单失败，请重试')
+  } finally {
+    loading.value = false
   }
 }
 </script>
@@ -183,16 +281,33 @@ async function handleSend() {
   color: #b0325b;
 }
 
+.header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.btn-clear {
+  border: 1px solid #f1e2ea;
+  background: #fff9fb;
+  color: #b0325b;
+  font-weight: 700;
+  padding: 8px 10px;
+  border-radius: 10px;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.btn-clear:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
 .ai-header p {
   margin: 6px 0 14px;
   font-size: 13px;
   color: #8c435f;
-}
-
-.ai-status {
-  margin-top: -10px;
-  font-size: 12px;
-  color: #9a2f55;
 }
 
 .warning-banner {
@@ -286,6 +401,27 @@ async function handleSend() {
   background: #ffffff;
   border: 1px solid #f1d1dd;
   color: #60394c;
+}
+
+.btn-ai-ticket {
+  margin-top: 10px;
+  background: linear-gradient(135deg, #ff9a9e, #fecfef);
+  border: none;
+  border-radius: 8px;
+  padding: 6px 12px;
+  color: #60394c;
+  font-size: 12px;
+  font-weight: bold;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  transition: all 0.3s ease;
+}
+
+.btn-ai-ticket:hover {
+  opacity: 0.9;
+  transform: translateY(-1px);
 }
 
 .notice .bubble {

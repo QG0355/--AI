@@ -14,7 +14,7 @@
           <label>账号 / User ID</label>
           <div class="input-wrapper">
             <i class="fas fa-user"></i>
-            <input type="text" v-model="username" placeholder="请输入工号/学号" required>
+            <input type="text" v-model="username" placeholder="请输入账号" required>
           </div>
         </div>
 
@@ -31,8 +31,13 @@
         </button>
 
         <div class="login-footer">
-          <span>还没有账号？</span>
-          <a @click.prevent="$router.push('/register')" class="link-btn">注册新用户</a>
+          <div class="login-links">
+            <span>还没有账号？</span>
+            <a @click.prevent="$router.push('/register')" class="link-btn">注册新用户</a>
+          </div>
+          <div class="login-links">
+            <a @click.prevent="$router.push('/')" class="link-btn">返回主页</a>
+          </div>
         </div>
       </form>
 
@@ -233,6 +238,10 @@ async function handleLogin() {
   text-align: center;
   font-size: 14px;
   color: #64748b;
+}
+
+.login-links {
+  margin-top: 10px;
 }
 
 .link-btn {

@@ -20,11 +20,8 @@
             <label>故障类型</label>
             <select v-model="form.category" required>
               <option value="">请选择类型</option>
-              <option value="设备故障">设备故障</option>
               <option value="水电问题">水电问题</option>
-              <option value="网络连接">网络连接</option>
-              <option value="柜子损坏">柜子损坏</option>
-              <option value="门窗损坏">门窗损坏</option>
+              <option value="网络连接">网络问题</option>
               <option value="其他">其他</option>
             </select>
           </div>
@@ -51,7 +48,7 @@
         </div>
 
         <div class="form-group">
-          <label>上传图片/视频（可选）</label>
+          <label>上传图片</label>
           <input
             type="file"
             multiple
@@ -59,7 +56,7 @@
             @change="onFilesChange"
           >
           <div class="upload-hint">
-            仅支持图片(jpg/jpeg/png/gif/webp)与视频(mp4/webm/ogg/mov)。图片≤5MB，视频≤50MB。
+            仅支持图片(jpg/jpeg/png)。图片≤5MB。
           </div>
 
           <div v-if="existingAttachments.length" class="existing-list">
@@ -220,6 +217,18 @@ onMounted(async () => {
   if (!auth.isLoggedIn) return
   if (isEdit.value) {
     await fetchTicketForEdit()
+  } else if (route.query.from_ai) {
+    const aiDataStr = sessionStorage.getItem('ai_ticket_data')
+    if (aiDataStr) {
+      try {
+        const aiData = JSON.parse(aiDataStr)
+        form.value.title = aiData.title || ''
+        form.value.category = aiData.category || ''
+        form.value.description = aiData.description || ''
+        form.value.priority = aiData.priority || '中'
+        sessionStorage.removeItem('ai_ticket_data')
+      } catch (e) {}
+    }
   }
 })
 

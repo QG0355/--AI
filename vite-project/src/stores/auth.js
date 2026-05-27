@@ -3,10 +3,19 @@ import { defineStore } from 'pinia'
 import axios from 'axios'
 import { apiUrl } from '@/config'
 
+function getStoredToken() {
+  const t = localStorage.getItem('token')
+  if (!t || t === 'null' || t === 'undefined') {
+    localStorage.removeItem('token')
+    return null
+  }
+  return t
+}
+
 export const useAuthStore = defineStore('auth', {
   state: () => ({
     currentUser: null,
-    token: localStorage.getItem('token') || null
+    token: getStoredToken()
   }),
 
   getters: {
@@ -66,6 +75,17 @@ export const useAuthStore = defineStore('auth', {
       this.token = null
       localStorage.removeItem('token')
       delete axios.defaults.headers.common['Authorization']
+      try {
+        const keys = []
+        for (let i = 0; i < sessionStorage.length; i++) {
+          const k = sessionStorage.key(i)
+          if (!k) continue
+          if (k.startsWith('ai_chat_messages_user_') || k === 'ai_chat_messages_guest') {
+            keys.push(k)
+          }
+        }
+        keys.forEach(k => sessionStorage.removeItem(k))
+      } catch (e) {}
     },
 
     // 新增：初始化时获取用户信息
@@ -79,6 +99,9 @@ export const useAuthStore = defineStore('auth', {
         this.currentUser = response.data
       } catch (error) {
         console.error('获取用户信息失败:', error)
+        if (error?.response?.status === 401) {
+          alert('登录已过期，请重新登录')
+        }
         // 如果 token 失效，自动登出
         this.logout()
       }

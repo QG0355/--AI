@@ -31,6 +31,10 @@ const router = createRouter({ history: createWebHistory(), routes })
 router.beforeEach(async (to, from, next) => {
   const authStore = useAuthStore()
   const publicPages = ['/login', '/register'] // 允许未登录访问的页面
+
+  if (publicPages.includes(to.path) && authStore.isLoggedIn) {
+    return next('/')
+  }
   
   // 如果去的是受保护页面 (非publicPages) 且没登录
   // 注意：主页 '/' 现在是 SubmitTicket，如果是公共的就加进数组，如果必须登录才显示就删掉 '/'

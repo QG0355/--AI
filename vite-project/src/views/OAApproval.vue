@@ -36,6 +36,11 @@
             <span v-if="item.location">地点：{{ item.location }}</span>
           </div>
           <div class="card-body">
+            <div v-if="isAiFlagged(item)" class="ai-flag">
+              <div class="ai-flag-title">AI 标记：疑似不匹配（需人工确认）</div>
+              <div class="ai-flag-text" v-if="item.ai_auto_reason">{{ item.ai_auto_reason }}</div>
+              <div class="ai-flag-text" v-if="item.ai_suggested_category">AI 建议类别：{{ item.ai_suggested_category }}</div>
+            </div>
             <div class="kv">
               <span class="k">类别</span>
               <span class="v">{{ item.category }}</span>
@@ -44,6 +49,7 @@
               <span class="k">优先级</span>
               <span class="v">{{ item.priority }}</span>
             </div>
+            <div v-if="isOverdue(item)" class="overdue">⏰ 已超时（超过24小时未处理）</div>
             <div class="desc">{{ item.description || '未填写详细描述' }}</div>
           </div>
           <div class="card-actions">
@@ -70,7 +76,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
 import axios from 'axios'
 import { useAuthStore } from '@/stores/auth'
 import { useRouter } from 'vue-router'
@@ -80,6 +86,10 @@ const auth = useAuthStore()
 const router = useRouter()
 const list = ref([])
 const rejectModal = ref({ open: false, ticketId: null, reason: '', submitting: false })
+let intervalId = null
+let lastCount = 0
+let lastOverdueKey = ''
+let lastAiFlagKey = ''
 
 async function fetchList() {
   const res = await axios.get(apiUrl('tickets/'), {
@@ -89,7 +99,56 @@ async function fetchList() {
   list.value = res.data
 }
 
-onMounted(fetchList)
+function isOverdue(t) {
+  const now = Date.now()
+  const submit = t.submitTime ? new Date(t.submitTime).getTime() : now
+  const update = t.updateTime ? new Date(t.updateTime).getTime() : submit
+  return (now - update) / 60000 > 24 * 60
+}
+
+function isAiFlagged(t) {
+  return !!t?.ai_auto_checked_at && t?.ai_auto_approved === false
+}
+
+function getAiFlaggedList() {
+  return (list.value || []).filter(isAiFlagged)
+}
+
+function getOverdueList() {
+  return (list.value || []).filter(isOverdue)
+}
+
+onMounted(async () => {
+  await fetchList()
+  lastCount = list.value.length
+
+  intervalId = setInterval(async () => {
+    await fetchList()
+
+    if (list.value.length > lastCount) {
+      alert('📢 提醒：有新的报修工单等待审核！')
+    }
+    lastCount = list.value.length
+
+    const overdue = getOverdueList()
+    const key = overdue.map(t => t.id).join(',')
+    if (key && key !== lastOverdueKey) {
+      alert(`⏰ 超时提醒：有 ${overdue.length} 个待审核工单已超时，请尽快处理`)
+    }
+    lastOverdueKey = key
+
+    const aiFlagged = getAiFlaggedList()
+    const aiKey = aiFlagged.map(t => t.id).join(',')
+    if (aiKey && aiKey !== lastAiFlagKey) {
+      alert(`🤖 AI 审核提醒：有 ${aiFlagged.length} 个工单被 AI 标记为疑似不匹配，请人工确认`)
+    }
+    lastAiFlagKey = aiKey
+  }, 15000)
+})
+
+onUnmounted(() => {
+  if (intervalId) clearInterval(intervalId)
+})
 
 async function review(id, decision) {
   await axios.post(
@@ -212,6 +271,36 @@ async function confirmReject() {
   margin: 0 0 16px;
   color: #64748b;
   font-size: 14px;
+}
+
+.overdue {
+  margin-top: 10px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: #fff7e6;
+  color: #fa8c16;
+  font-weight: 700;
+  font-size: 13px;
+}
+
+.ai-flag {
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid #ffd1dc;
+  background: #fff3f6;
+  color: #b42318;
+}
+
+.ai-flag-title {
+  font-weight: 800;
+  font-size: 13px;
+  margin-bottom: 6px;
+}
+
+.ai-flag-text {
+  font-size: 13px;
+  line-height: 1.5;
 }
 
 .empty {

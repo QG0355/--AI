@@ -215,7 +215,7 @@ async function fetchStats() {
   if (role === 'student') {
     const res = await axios.get(apiUrl('tickets/'), { headers })
     const tickets = Array.isArray(res.data) ? res.data : []
-    const processingStatuses = ['pending_dorm', 'pending_dispatch', 'repairing', 'finished']
+    const processingStatuses = ['pending_dorm', 'pending_dispatch', 'pending_repair', 'repairing', 'finished']
     statsData.value.studentTotal = tickets.length
     statsData.value.studentProcessing = tickets.filter(t => processingStatuses.includes(t.status)).length
     statsData.value.studentClosed = tickets.filter(t => t.status === 'closed').length
@@ -247,7 +247,7 @@ async function fetchStats() {
     const pending = Array.isArray(pendingRes.data) ? pendingRes.data : []
     const all = Array.isArray(allRes.data) ? allRes.data : []
     statsData.value.pendingReview = pending.length
-    statsData.value.pendingDispatch = all.filter(t => t.status === 'pending_dispatch').length
+    statsData.value.pendingDispatch = all.filter(t => ['pending_dispatch', 'pending_repair'].includes(t.status)).length
     statsData.value.rejected = all.filter(t => t.status === 'rejected').length
   }
 }

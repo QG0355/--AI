@@ -11,7 +11,7 @@ from django.db import IntegrityError
 from django.shortcuts import render, redirect, get_object_or_404
 from django.http import JsonResponse
 from django.utils import timezone
-from .models import ServiceStar, StudentProfile, MaintenanceProfile, AuditorProfile, AiSetting, AiChatLog
+from .models import ServiceStar, StudentProfile, MaintenanceProfile, AuditorProfile, AdminProfile, AiSetting, AiChatLog
 from rest_framework import filters
 import os
 import json
@@ -32,6 +32,7 @@ def get_current_user(request):
     user = request.user
     if request.method == 'PATCH':
         updates = {}
+        profile_updates = {}
         if 'name' in request.data:
             name = (request.data.get('name') or '').strip()
             if not name:
@@ -43,12 +44,49 @@ def get_current_user(request):
                 return Response({"detail": "性别不合法"}, status=status.HTTP_400_BAD_REQUEST)
             updates['gender'] = gender
 
-        if not updates:
+        if getattr(user, 'role', None) == 'maintenance':
+            if 'department' in request.data:
+                department = (request.data.get('department') or '').strip()
+                if len(department) > 100:
+                    return Response({"detail": "部门/工种过长"}, status=status.HTTP_400_BAD_REQUEST)
+                profile_updates['department'] = department
+            if 'contact_phone' in request.data:
+                contact_phone = (request.data.get('contact_phone') or '').strip()
+                if len(contact_phone) > 20:
+                    return Response({"detail": "联系电话过长"}, status=status.HTTP_400_BAD_REQUEST)
+                profile_updates['contact_phone'] = contact_phone
+        if getattr(user, 'role', None) == 'auditor':
+            if 'contact_phone' in request.data:
+                contact_phone = (request.data.get('contact_phone') or '').strip()
+                if len(contact_phone) > 20:
+                    return Response({"detail": "联系电话过长"}, status=status.HTTP_400_BAD_REQUEST)
+                profile_updates['auditor_contact_phone'] = contact_phone
+
+        if not updates and not profile_updates:
             return Response({"detail": "没有可更新的字段"}, status=status.HTTP_400_BAD_REQUEST)
 
         for k, v in updates.items():
             setattr(user, k, v)
-        user.save(update_fields=list(updates.keys()))
+        if updates:
+            user.save(update_fields=list(updates.keys()))
+
+        if profile_updates:
+            if getattr(user, 'role', None) == 'maintenance':
+                mp, _ = MaintenanceProfile.objects.get_or_create(
+                    user=user,
+                    defaults={'worker_id': user.identity_id or str(user.pk)}
+                )
+                for k, v in profile_updates.items():
+                    setattr(mp, k, v)
+                mp.save(update_fields=list(profile_updates.keys()))
+            if getattr(user, 'role', None) == 'auditor':
+                ap, _ = AuditorProfile.objects.get_or_create(
+                    user=user,
+                    defaults={'auditor_id': user.identity_id or str(user.pk)}
+                )
+                if 'auditor_contact_phone' in profile_updates:
+                    ap.contact_phone = profile_updates['auditor_contact_phone']
+                    ap.save(update_fields=['contact_phone'])
     data = UserSerializer(user, context={'request': request}).data
     if getattr(user, 'role', None) == 'maintenance':
         agg = Ticket.objects.filter(assignee=user, status='closed').aggregate(avg=Avg('rating'), cnt=Count('id'))
@@ -81,15 +119,19 @@ def get_maintenance_users(request):
     user = request.user
     if user.role not in ['admin', 'auditor']:
         return Response({'detail': '无权限查看维修人员列表'}, status=status.HTTP_403_FORBIDDEN)
-    qs = CustomUser.objects.filter(role='maintenance').order_by('id')
+    qs = CustomUser.objects.filter(role='maintenance').select_related('maintenance_profile').order_by('id')
     data = [
         {
             'id': u.id,
             'name': (u.name or u.username),
             'identity_id': u.identity_id,
             'username': u.username,
+            'department': getattr(getattr(u, 'maintenance_profile', None), 'department', '') or '',
+            'contact_phone': getattr(getattr(u, 'maintenance_profile', None), 'contact_phone', '') or '',
         }
         for u in qs
+        if (getattr(getattr(u, 'maintenance_profile', None), 'department', '') or '').strip()
+        and (getattr(getattr(u, 'maintenance_profile', None), 'contact_phone', '') or '').strip()
     ]
     return Response(data)
 
@@ -117,6 +159,10 @@ def bind_identity(request):
     user.identity_id = identity_id
     user.name = name
     user.is_identity_bound = True
+    if role in {'admin', 'auditor'}:
+        user.is_staff = True
+    else:
+        user.is_staff = False
     try:
         user.save()
     except IntegrityError:
@@ -126,8 +172,10 @@ def bind_identity(request):
         StudentProfile.objects.update_or_create(user=user, defaults={'student_id': identity_id})
     elif role == 'maintenance':
         MaintenanceProfile.objects.update_or_create(user=user, defaults={'worker_id': identity_id})
-    elif role in ['auditor', 'admin']:
+    elif role == 'auditor':
         AuditorProfile.objects.update_or_create(user=user, defaults={'auditor_id': identity_id})
+    elif role == 'admin':
+        AdminProfile.objects.update_or_create(user=user, defaults={'admin_id': identity_id})
 
     try:
         sync_user_simple(user)
@@ -190,6 +238,10 @@ class TicketViewSet(viewsets.ModelViewSet):
         status_param = self.request.query_params.get('status')
         if status_param:
             qs = qs.filter(status=status_param)
+
+        ai_flagged = (self.request.query_params.get('ai_flagged') or '').strip().lower() in {'1', 'true', 'yes', 'on'}
+        if ai_flagged:
+            qs = qs.filter(status='pending_dorm', ai_auto_checked_at__isnull=False, ai_auto_approved=False)
         return qs
 
     def perform_create(self, serializer):
@@ -248,13 +300,20 @@ class TicketViewSet(viewsets.ModelViewSet):
         if user.role == 'student':
             # 学生只能做“评价”或“取消工单”（如果允许的话），不能做 assign/finish
             # 这里先全部拦截，只允许后续加 evaluate
-            if action_type in ['assign', 'finish', 'dispatch']:
+            if action_type in ['assign', 'finish', 'dispatch', 'return']:
                 return Response({'detail': '学生无权执行此操作'}, status=status.HTTP_403_FORBIDDEN)
 
         # Dispatch (Assign)
         if action_type == 'assign':
             if user.role not in ['admin', 'auditor']:
                  return Response({'detail': '无权派单'}, status=status.HTTP_403_FORBIDDEN)
+            if ticket.status != 'pending_dispatch':
+                return Response({'detail': '当前状态不可派单'}, status=status.HTTP_400_BAD_REQUEST)
+
+            if user.role == 'auditor':
+                ap = getattr(user, 'auditor_profile', None)
+                if not (getattr(ap, 'contact_phone', '') or '').strip():
+                    return Response({'detail': '请先在工作台填写并保存审核员联系电话后再派单'}, status=status.HTTP_400_BAD_REQUEST)
             
             worker_id = request.data.get('worker_id')
             if not worker_id:
@@ -264,9 +323,11 @@ class TicketViewSet(viewsets.ModelViewSet):
                 worker = CustomUser.objects.get(pk=worker_id)
                 if worker.role != 'maintenance':
                     return Response({'detail': '派单对象必须是维修人员'}, status=status.HTTP_400_BAD_REQUEST)
+                mp = getattr(worker, 'maintenance_profile', None)
+                if not mp or not (mp.contact_phone or '').strip() or not (mp.department or '').strip():
+                    return Response({'detail': '该维修人员未完善“联系电话/工种”，暂不可派单'}, status=status.HTTP_400_BAD_REQUEST)
                 ticket.assignee = worker
-                ticket.status = 'repairing'
-                ticket.response_time = timezone.now()
+                ticket.status = 'pending_repair'
                 ticket.save()
                 try:
                     sync_ticket_simple(ticket)
@@ -276,6 +337,27 @@ class TicketViewSet(viewsets.ModelViewSet):
             except CustomUser.DoesNotExist:
                 return Response({'error': 'Worker not found'}, status=400)
 
+        if action_type == 'start':
+            if user.role == 'maintenance' and ticket.assignee != user:
+                return Response({'detail': '只能处理指派给自己的工单'}, status=status.HTTP_403_FORBIDDEN)
+            if user.role not in ['admin', 'maintenance']:
+                return Response({'detail': '无权开始维修'}, status=status.HTTP_403_FORBIDDEN)
+            if ticket.status != 'pending_repair':
+                return Response({'detail': '当前状态不可开始维修'}, status=status.HTTP_400_BAD_REQUEST)
+            if user.role == 'maintenance':
+                mp = getattr(user, 'maintenance_profile', None)
+                if not mp or not (mp.contact_phone or '').strip() or not (mp.department or '').strip():
+                    return Response({'detail': '请先在工作台填写并保存“联系电话/工种”后再开始维修'}, status=status.HTTP_400_BAD_REQUEST)
+
+            ticket.status = 'repairing'
+            ticket.response_time = timezone.now()
+            ticket.save()
+            try:
+                sync_ticket_simple(ticket)
+            except Exception:
+                pass
+            return Response({'status': 'Repair Started'})
+
         # Finish Repair
         if action_type == 'finish':
             # 只有维修工（且是当前工单的处理人）或管理员可以点击完成
@@ -284,16 +366,163 @@ class TicketViewSet(viewsets.ModelViewSet):
             
             if user.role not in ['admin', 'maintenance']:
                 return Response({'detail': '无权完成工单'}, status=status.HTTP_403_FORBIDDEN)
+            if ticket.status != 'repairing':
+                return Response({'detail': '仅维修中工单可完成'}, status=status.HTTP_400_BAD_REQUEST)
+            if user.role == 'maintenance':
+                mp = getattr(user, 'maintenance_profile', None)
+                if not mp or not (mp.contact_phone or '').strip() or not (mp.department or '').strip():
+                    return Response({'detail': '请先在工作台填写并保存“联系电话/工种”后再完成维修'}, status=status.HTTP_400_BAD_REQUEST)
 
             ticket.status = 'finished'
             ticket.repair_result = (request.data.get('repair_result') or '').strip() or None
             ticket.materials_used = (request.data.get('materials_used') or '').strip() or None
+            ticket.material_cost = 0
+
+            def ensure_repair_sheet(t):
+                now2 = timezone.now()
+                if not (t.reimbursement_no or '').strip():
+                    t.reimbursement_no = f"BX{now2.strftime('%Y%m%d')}-{int(t.id):06d}"
+                t.reimbursement_generated_at = now2
+                submitter_name2 = getattr(getattr(t, 'submitter', None), 'name', '') or getattr(getattr(t, 'submitter', None), 'username', '') or ''
+                submitter_identity2 = (getattr(getattr(t, 'submitter', None), 'identity_id', None) or '').strip()
+                worker_name2 = getattr(getattr(t, 'assignee', None), 'name', '') or getattr(getattr(t, 'assignee', None), 'username', '') or ''
+                dep2 = ''
+                try:
+                    dep2 = getattr(getattr(t.assignee, 'maintenance_profile', None), 'department', '') or ''
+                except Exception:
+                    dep2 = ''
+                t.reimbursement_text = (
+                    "校园维修报修单\n"
+                    f"报修单号：{t.reimbursement_no}\n"
+                    f"工单编号：{t.id}\n"
+                    f"生成时间：{now2.strftime('%Y-%m-%d %H:%M:%S')}\n"
+                    "\n"
+                    f"报修标题：{t.title}\n"
+                    f"报修类别：{t.category}\n"
+                    f"维修地点：{t.location or ''}\n"
+                    f"学号：{submitter_identity2}\n"
+                    f"学生姓名：{submitter_name2}\n"
+                    "\n"
+                    f"维修人员：{worker_name2}\n"
+                    f"工种：{dep2}\n"
+                    "\n"
+                    f"维修结果：{t.repair_result or ''}\n"
+                    f"耗材明细：{t.materials_used or ''}\n"
+                    "\n"
+                )
+                return t
+
+            ensure_repair_sheet(ticket)
             ticket.save()
             try:
                 sync_ticket_simple(ticket)
             except Exception:
                 pass
-            return Response({'status': 'Repair Finished'})
+            return Response(
+                {
+                    'status': 'Repair Finished',
+                    'reimbursement_no': ticket.reimbursement_no,
+                    'reimbursement_text': ticket.reimbursement_text,
+                }
+            )
+
+        if action_type == 'sheet':
+            allowed = False
+            if user.role in ['admin', 'auditor']:
+                allowed = True
+            elif user.role == 'maintenance' and ticket.assignee == user:
+                allowed = True
+            elif user.role == 'student' and ticket.submitter == user:
+                allowed = True
+            if not allowed:
+                return Response({'detail': '无权生成报修单'}, status=status.HTTP_403_FORBIDDEN)
+            if ticket.status not in ['finished', 'closed']:
+                return Response({'detail': '仅已完成/已结单工单可生成报修单'}, status=status.HTTP_400_BAD_REQUEST)
+
+            if not (ticket.reimbursement_text or '').strip():
+                now = timezone.now()
+                if not (ticket.reimbursement_no or '').strip():
+                    ticket.reimbursement_no = f"BX{now.strftime('%Y%m%d')}-{int(ticket.id):06d}"
+                ticket.reimbursement_generated_at = now
+                submitter_name = getattr(getattr(ticket, 'submitter', None), 'name', '') or getattr(getattr(ticket, 'submitter', None), 'username', '') or ''
+                submitter_identity = (getattr(getattr(ticket, 'submitter', None), 'identity_id', None) or '').strip()
+                worker_name = getattr(getattr(ticket, 'assignee', None), 'name', '') or getattr(getattr(ticket, 'assignee', None), 'username', '') or ''
+                dep = ''
+                try:
+                    dep = getattr(getattr(ticket.assignee, 'maintenance_profile', None), 'department', '') or ''
+                except Exception:
+                    dep = ''
+                ticket.reimbursement_text = (
+                    "校园维修报修单\n"
+                    f"报修单号：{ticket.reimbursement_no}\n"
+                    f"工单编号：{ticket.id}\n"
+                    f"生成时间：{now.strftime('%Y-%m-%d %H:%M:%S')}\n"
+                    "\n"
+                    f"报修标题：{ticket.title}\n"
+                    f"报修类别：{ticket.category}\n"
+                    f"维修地点：{ticket.location or ''}\n"
+                    f"学号：{submitter_identity}\n"
+                    f"学生姓名：{submitter_name}\n"
+                    "\n"
+                    f"维修人员：{worker_name}\n"
+                    f"工种：{dep}\n"
+                    "\n"
+                    f"维修结果：{ticket.repair_result or ''}\n"
+                    f"耗材明细：{ticket.materials_used or ''}\n"
+                    "\n"
+                )
+                ticket.save(update_fields=['reimbursement_no', 'reimbursement_text', 'reimbursement_generated_at'])
+
+            return Response(
+                {
+                    'reimbursement_no': ticket.reimbursement_no,
+                    'reimbursement_text': ticket.reimbursement_text,
+                }
+            )
+
+        # Return to Dispatcher
+        if action_type == 'return':
+            if user.role == 'maintenance' and ticket.assignee != user:
+                return Response({'detail': '只能退回指派给自己的工单'}, status=status.HTTP_403_FORBIDDEN)
+            if user.role not in ['admin', 'maintenance']:
+                return Response({'detail': '无权退回工单'}, status=status.HTTP_403_FORBIDDEN)
+            if ticket.status not in ['pending_repair']:
+                return Response({'detail': '仅待维修工单可退回重派'}, status=status.HTTP_400_BAD_REQUEST)
+            if user.role == 'maintenance':
+                mp = getattr(user, 'maintenance_profile', None)
+                if not mp or not (mp.contact_phone or '').strip() or not (mp.department or '').strip():
+                    return Response({'detail': '请先在工作台填写并保存“联系电话/工种”后再退回重派'}, status=status.HTTP_400_BAD_REQUEST)
+            
+            ticket.status = 'pending_dispatch'
+            ticket.assignee = None
+            ticket.save()
+            try:
+                sync_ticket_simple(ticket)
+            except Exception:
+                pass
+            return Response({'status': 'Returned'})
+
+        if action_type == 'special':
+            return Response({'detail': '特殊工单功能已移除'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Urge
+        if action_type == 'urge':
+            if user.role == 'student' and ticket.submitter != user:
+                return Response({'detail': '只能催办自己的工单'}, status=status.HTTP_403_FORBIDDEN)
+            if ticket.status in ['finished', 'closed', 'rejected']:
+                return Response({'detail': '当前状态不可催办'}, status=status.HTTP_400_BAD_REQUEST)
+            
+            cd_seconds = 12 * 60 * 60
+            if ticket.last_urge_at:
+                delta = timezone.now() - ticket.last_urge_at
+                if delta.total_seconds() < cd_seconds:
+                    remain = int(cd_seconds - delta.total_seconds())
+                    return Response({'detail': f'催办太频繁，请 {remain} 秒后再试'}, status=429)
+
+            ticket.urge_count += 1
+            ticket.last_urge_at = timezone.now()
+            ticket.save(update_fields=['urge_count', 'last_urge_at'])
+            return Response({'status': 'Urged'})
 
         if action_type == 'evaluate':
             if user.role != 'student':
@@ -307,8 +536,8 @@ class TicketViewSet(viewsets.ModelViewSet):
                 rating = int(request.data.get('rating') or 5)
             except Exception:
                 return Response({'detail': '评分格式错误'}, status=status.HTTP_400_BAD_REQUEST)
-            if rating < 1 or rating > 5:
-                return Response({'detail': '评分需为 1-5'}, status=status.HTTP_400_BAD_REQUEST)
+            if rating < 0 or rating > 5:
+                return Response({'detail': '评分需为 0-5'}, status=status.HTTP_400_BAD_REQUEST)
 
             evaluation = (request.data.get('evaluation') or '').strip()
             is_anonymous = bool(request.data.get('is_anonymous') or False)
@@ -331,6 +560,10 @@ class TicketViewSet(viewsets.ModelViewSet):
         user = request.user
         if user.role not in ['admin', 'auditor']:
             return Response({'detail': '无权限执行审核操作'}, status=status.HTTP_403_FORBIDDEN)
+        if user.role == 'auditor':
+            ap = getattr(user, 'auditor_profile', None)
+            if not (getattr(ap, 'contact_phone', '') or '').strip():
+                return Response({'detail': '请先在工作台填写并保存审核员联系电话后再审核'}, status=status.HTTP_400_BAD_REQUEST)
 
         decision = request.data.get('decision')
         if decision == 'approve':
@@ -377,7 +610,12 @@ class TicketViewSet(viewsets.ModelViewSet):
 
         if user.role == 'student' and ticket.submitter != user:
             return Response({'detail': '无权上传附件'}, status=status.HTTP_403_FORBIDDEN)
-        if user.role not in ['student', 'admin', 'auditor']:
+        if user.role == 'maintenance':
+            if ticket.assignee != user:
+                return Response({'detail': '无权上传附件'}, status=status.HTTP_403_FORBIDDEN)
+            if ticket.status not in ['repairing', 'finished']:
+                return Response({'detail': '当前状态不可上传附件'}, status=status.HTTP_400_BAD_REQUEST)
+        elif user.role not in ['student', 'admin', 'auditor']:
             return Response({'detail': '无权上传附件'}, status=status.HTTP_403_FORBIDDEN)
         if user.role == 'student' and ticket.status not in ['pending_dorm', 'rejected']:
             return Response({'detail': '当前状态不可上传附件'}, status=status.HTTP_400_BAD_REQUEST)
@@ -453,6 +691,8 @@ def ai_chat(request):
     api_key = os.environ.get('AI_API_KEY') or os.environ.get('OPENAI_API_KEY')
     base_url = (os.environ.get('AI_BASE_URL') or 'https://api.siliconflow.cn/v1').rstrip('/')
     model = os.environ.get('AI_MODEL') or 'deepseek-ai/DeepSeek-V3'
+    model_deep = os.environ.get('AI_MODEL_DEEP') or ''
+    llm_enabled = str(os.environ.get('AI_LLM_ENABLED') or '').strip().lower() in {'1', 'true', 'yes', 'on'}
     try:
         timeout = float(os.environ.get('AI_TIMEOUT') or 20)
     except Exception:
@@ -462,10 +702,13 @@ def ai_chat(request):
     if s:
         if not s.enabled:
             return Response({"detail": "AI 助手已在后台关闭"}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+        llm_enabled = bool(getattr(s, 'llm_enabled', False))
         if (s.api_base_url or '').strip():
             base_url = s.api_base_url.strip().rstrip('/')
         if (s.api_model or '').strip():
             model = s.api_model.strip()
+        if (getattr(s, 'api_model_deep', '') or '').strip():
+            model_deep = getattr(s, 'api_model_deep', '').strip()
         if (s.api_key or '').strip():
             api_key = s.api_key.strip()
         if getattr(s, 'timeout_seconds', None):
@@ -491,6 +734,7 @@ def ai_chat(request):
     base = (
         f"您好，{name}。\n"
         f"我理解你遇到的问题是：{content}\n\n"
+        "如果你希望一键填写报修单：先把地点/现象/是否紧急等信息告诉我，然后点击聊天回复气泡下方的“ 一键帮我填报修单 ”按钮自动填表。\n\n"
         f"建议（参考）：\n"
     )
 
@@ -573,7 +817,9 @@ def ai_chat(request):
         "answer": answer,
         "warning": warning,
         "mode": "fallback",
-        "ai_enabled": bool(api_key)
+        "ai_enabled": bool(api_key),
+        "thinking": bool(llm_enabled),
+        "has_key": bool(api_key),
     }
 
     if api_key:
@@ -582,14 +828,17 @@ def ai_chat(request):
             pass
         else:
             outbound_content = _mask_pii(content)
+            use_model = (model_deep or model) if llm_enabled else model
             system_prompt = (
                 "你是校园报修AI助手。请用中文回答，回答要保守、谨慎、以安全为先。"
                 "你只能提供报修流程、信息收集建议与风险提示，不能提供任何带电检修、拆装、测电等操作指导。"
-                "遇到宿舍水电、安全风险、冒烟、漏电、跳闸等情况，必须提醒用户停止操作并通过平台提交报修等待处理。"
+                "你必须引导用户使用“本平台”完成报修，不得建议去任何其他APP/公众号/小程序/电话渠道报修，也不要出现“本系统暂不支持”之类的贬低语气。"
+                "当用户表达“想一键报修/一键填写”时，请明确告知：先与AI对话补充信息，然后点击聊天回复气泡下方的“ 一键帮我填报修单 ”按钮自动填表，再在提交页面补全联系方式后提交。"
+                "遇到宿舍水电、安全风险、冒烟、漏电、跳闸等情况，必须提醒用户停止操作并通过本平台提交报修等待处理。"
                 "不要编造事实或承诺。回答末尾不要重复免责声明，免责声明由前端单独展示。"
             )
             payload = {
-                "model": model,
+                "model": use_model,
                 "messages": [
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": outbound_content},
@@ -611,7 +860,7 @@ def ai_chat(request):
                     data = json.loads(resp.read().decode("utf-8"))
                 msg = (((data.get("choices") or [{}])[0].get("message") or {}).get("content") or "").strip()
                 if msg:
-                    res_data = {"answer": msg, "warning": warning, "mode": "llm", "ai_enabled": True}
+                    res_data = {"answer": msg, "warning": warning, "mode": "llm", "ai_enabled": True, "thinking": bool(llm_enabled), "has_key": True}
             except HTTPError as e:
                 logger.warning("ai_chat_http_error", exc_info=True)
                 res_data["upstream_status"] = getattr(e, "code", None)
@@ -635,6 +884,89 @@ def ai_chat(request):
 
     return Response(res_data)
 
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def ai_generate_ticket(request):
+    user = request.user
+    if user.role != 'student':
+        return Response({"detail": "仅学生可用此功能"}, status=status.HTTP_403_FORBIDDEN)
+
+    chat_history = request.data.get('chat_history', [])
+    if not chat_history:
+        return Response({"detail": "聊天记录为空"}, status=status.HTTP_400_BAD_REQUEST)
+
+    user_last = ""
+    user_messages = []
+    for msg in chat_history:
+        if msg.get('role') == 'user':
+            c = (msg.get('content') or '').strip()
+            if c:
+                user_messages.append(c)
+    for msg in reversed(chat_history):
+        if msg.get('role') == 'user':
+            user_last = (msg.get('content') or '').strip()
+            break
+
+    user_context = "\n".join(user_messages[-6:])
+    text = (user_last or user_context or '').strip()
+
+    category = "其他"
+    if any(k in user_context.lower() for k in ["wifi", "wi-fi", "网络", "上网", "断网", "路由", "宽带"]):
+        category = "网络连接"
+    elif any(k in user_context for k in ["跳闸", "断电", "停电", "插座", "电闸", "开关", "漏电", "灯不亮", "灯坏", "电"]):
+        category = "水电问题"
+    elif any(k in user_context for k in ["空调", "冰箱", "洗衣机", "热水器", "风扇", "设备", "电器"]):
+        category = "设备故障"
+    elif any(k in user_context for k in ["柜", "衣柜", "桌", "椅", "床", "抽屉", "滑轨", "铰链"]):
+        category = "柜子损坏"
+    elif any(k in user_context for k in ["门", "窗", "锁", "玻璃", "合页"]):
+        category = "门窗损坏"
+
+    def pick_title(question: str, cat: str) -> str:
+        q = (question or '').strip()
+        normalized = q.replace('？', '?').replace('，', ',').replace('。', '.')
+        compact = re.sub(r'\s+', ' ', normalized).strip()
+
+        if '空调' in compact and any(k in compact for k in ['不制冷', '不冷', '不凉', '不制热', '不热', '不暖']):
+            return '空调不制冷/制热'
+        if '空调' in compact and any(k in compact for k in ['漏水', '滴水', '渗水']):
+            return '空调漏水'
+        if any(k in compact for k in ['跳闸', '断电', '停电']):
+            return '跳闸/断电'
+        if any(k in compact for k in ['下水', '堵塞', '堵', '反味']):
+            return '下水堵塞'
+        if any(k in compact for k in ['灯不亮', '灯坏', '灯泡']):
+            return '灯不亮'
+        if any(k in compact for k in ['插座', '开关']):
+            return '插座/开关故障'
+        if any(k in compact.lower() for k in ['断网', '没网', '连不上', 'wifi', 'wi-fi', '网络']):
+            return '网络故障'
+        if any(k in compact for k in ['漏水', '滴水', '渗水']):
+            return '漏水'
+        if any(k in compact for k in ['门', '锁']):
+            return '门锁故障'
+        if any(k in compact for k in ['窗', '玻璃']):
+            return '窗户/玻璃损坏'
+        if any(k in compact for k in ['柜', '抽屉', '滑轨', '铰链']):
+            return '柜子损坏'
+
+        cleaned = re.sub(r'[^\u4e00-\u9fffA-Za-z0-9]+', ' ', compact).strip()
+        if cleaned:
+            words = cleaned.split()
+            clipped = ''.join(words)[:18]
+            if clipped:
+                return clipped
+        return cat or '报修'
+
+    title = pick_title(text, category)
+    desc = text
+
+    return Response({
+        "title": title,
+        "category": category,
+        "description": desc or "",
+        "priority": "中"
+    })
 
 # def change_status(request, order_id):
 #     order = get_object_or_404(Order, id=order_id)

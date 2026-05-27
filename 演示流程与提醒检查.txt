@@ -1,0 +1,143 @@
+【项目提醒/通知现状检查 + 演示流程脚本（含 AI 新功能）】
+
+一、提醒/通知现状（结论先说）
+1）本项目目前没有“消息中心/站内信/推送”，提醒主要靠：
+  - 前端页面定时轮询接口 + alert 弹窗
+  - 列表页展示状态/原因（不弹窗）
+2）因此“有提醒”的前提是：对应角色必须打开相应页面并保持在线。
+
+
+二、学生端：被驳回提醒（已实现，但为被动提醒）
+1）后端支持
+  - 审核驳回：工单 status=rejected，同时写 rejected_reason（学生可见）
+  - 学生修改后重新提交：仅允许修改 rejected 的单，提交后回到 pending_dorm 并清空 rejected_reason
+2）前端表现
+  - 学生在“我的报修记录”列表中看到状态=已驳回，并显示“驳回原因”
+  - 不会主动弹窗提醒（需要学生自己进入列表看）
+
+
+三、审核员/管理员：提醒（部分已实现，部分缺失）
+A. 新单提醒（待派单 pending_dispatch）：已实现
+  - 页面：工作台（/workplace）
+  - 方式：每 15 秒轮询 /tickets/，待派单数量增加则 alert 提示
+B. 审核阶段新单提醒（待审核 pending_dorm）：缺失
+  - 当前审核页面（/approval）仅 onMounted 拉一次列表，后续靠手动点“刷新列表”
+  - 也没有对 pending_dorm 的轮询/弹窗提醒
+C. 审核超时提醒：缺失（只做了派单/维修超时）
+  - 工作台的“超时提醒”仅覆盖：
+    - pending_dispatch（待派单）超过 24h
+    - pending_repair（待维修）超过 24h
+    - repairing（维修中）超过 expected_finish_days 或默认 7 天
+  - 不包含 pending_dorm（待审核）超时提醒
+D. AI 审核标记提醒：后端有能力，但前端缺入口/提示
+  - 后端已有字段记录 AI 审核结果：ai_auto_approved/ai_auto_checked_at/ai_suggested_category/ai_auto_reason
+  - 后端新增了筛选参数：/tickets/?ai_flagged=1
+    含义：status=pending_dorm 且 ai_auto_checked_at!=null 且 ai_auto_approved=false（AI 判定不一致、需要人工复核）
+  - 前端目前没有“AI 标记待复核”按钮/列表/提醒，也没展示 ai_auto_reason
+  - 目前只能通过：
+    - Django Admin 里过滤查看（Ticket 列表可按 ai_auto_approved 过滤）
+    - 或手动请求 /tickets/?ai_flagged=1 来看
+
+
+四、维修人员：提醒（已实现）
+A. 新派单提醒：已实现
+  - 页面：工作台（/workplace）
+  - 方式：每 15 秒轮询 /tickets/，发现“待开始维修 pending_repair”数量变多则 alert 提示
+B. 维修超时提醒：已实现
+  - pending_repair 超过 24h
+  - repairing 超过 expected_finish_days（未设置默认 7 天）
+
+
+五、AI 新功能：自动审批 / 自动驳回（两种模式）
+1）自动审批（已实现）
+  - 命令：python manage.py ai_auto_review
+  - 扫描 pending_dorm
+  - 若 AI 判断“标题/类别/描述一致”，则：
+    - status: pending_dorm -> pending_dispatch
+    - ai_auto_approved=True
+    - ai_auto_checked_at 写入时间
+    - ai_suggested_category/ai_auto_reason 写入原因
+  - 对演示的效果：
+    - 审核员无需手工点“通过”，工单会自动进入待派单
+    - 若派单员打开 /workplace，会弹“有新单待派单”的提醒
+2）自动驳回（可选开关，默认不启用）
+  - 命令增加参数：python manage.py ai_auto_review --reject-on-mismatch
+  - 若 AI 判断“不一致”，则：
+    - status -> rejected
+    - rejected_reason 写入（学生能看到）
+  - 风险（你说的点完全正确）：
+    - 学生端不会弹窗，只能去“我的报修记录”看到被驳回
+  - 更推荐的默认策略（当前已采用）：
+    - 不直接驳回，只打“AI 标记待复核”标签，交给审核员最终决定
+
+
+六、演示流程（从 AI 助手到评价的完整脚本）
+【演示前准备】
+1）启动后端 Django
+2）启动前端 Vue
+3）启动 AI 自动审核循环（建议演示时一直开着）
+  - 双击：run_ai_auto_review_loop.bat（默认每 20 秒跑一次）
+
+【角色与页面】
+- 学生：
+  - AI 助手：/ai
+  - 提交报修：/submit
+  - 我的报修：/tickets
+- 审核员/管理员：
+  - 审核中心：/approval（手动刷新列表）
+  - 工作台：/workplace（派单提醒/超时提醒在这里）
+- 维修人员：
+  - 工作台：/workplace（新派单提醒/超时提醒在这里）
+
+【步骤 1：学生问 AI】
+1）学生登录
+2）进入“AI 报修助手”（/ai）
+3）提问示例：空调漏水怎么办？
+4）等 AI 回复后，点击气泡下方按钮：“一键帮我填报修单”
+
+【步骤 2：一键填表 + 学生补全信息并提交】
+1）会跳转到“提交报修单”（/submit?from_ai=1），表单已预填：
+  - title/category/description/priority
+2）学生补全：
+  - location（地点）
+  - contact（联系电话）
+  - 可上传图片/视频附件（提交后会真实上传到后端 attachments）
+3）点击提交，工单进入：pending_dorm（待审核）
+
+【步骤 3：AI 自动审批（演示核心）】
+1）等待 20 秒左右（或手动运行一次 ai_auto_review）
+2）若 AI 判断一致：
+  - 工单自动进入 pending_dispatch（待派单）
+  - 会写入 AI 自动过审标识与原因
+3）派单员打开工作台（/workplace）：
+  - 待派单列表会出现该工单
+  - 若保持页面在线，pending_dispatch 数量增加会弹窗提醒
+
+【步骤 4：派单给维修人员 + 维修人员收到提醒】
+1）派单员在工作台对该单选择维修人员并派单
+  - 状态：pending_dispatch -> pending_repair
+2）维修人员登录并打开工作台（/workplace）
+  - 每 15 秒轮询
+  - 若有新派单，会弹窗提醒
+
+【步骤 5：开始维修 -> 维修中 -> 完成】
+1）维修人员点击“开始维修”
+  - 状态：pending_repair -> repairing
+2）维修人员点击“完成维修”
+  - 状态：repairing -> finished（待评价）
+  - 可填写维修结果/耗材，并支持上传“维修完成附件”
+
+【步骤 6：学生评价并结单】
+1）学生进入“我的报修记录”（/tickets）
+2）找到状态=维修完成(待评价) 的工单
+3）点击“评价并结单”
+  - 状态：finished -> closed
+
+
+七、容易遗漏/可能翻车点（按你的需求整理）
+1）审核员“待审核新单提醒”：当前缺失（/approval 没轮询）
+2）审核超时提醒：当前缺失（pending_dorm 未计入超时）
+3）AI 标记待复核提醒：后端已具备筛选能力，但前端缺入口/缺显著标识
+4）学生被驳回提醒：当前为“列表被动提醒”，不是弹窗/红点
+5）所有提醒都依赖“页面在线轮询”，不是系统推送；演示时要保持对应角色打开对应页面
+

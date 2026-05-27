@@ -1,7 +1,7 @@
 from django.contrib import admin
 from django.contrib.auth.models import Group
 from rest_framework.authtoken.models import Token
-from .models import Ticket, ServiceStar, CustomUser, TicketAttachment, AiChatLog
+from .models import Ticket, ServiceStar, CustomUser, TicketAttachment, AiChatLog, AiSetting
 from .simple_sync import sync_user as sync_user_simple, sync_service_star as sync_service_star_simple
 
 # 隐藏不需要的默认模块（认证与授权、Token等）
@@ -23,14 +23,41 @@ class AiChatLogAdmin(admin.ModelAdmin):
     search_fields = ('user__username', 'question', 'answer')
     readonly_fields = ('user', 'question', 'answer', 'mode', 'ai_enabled', 'warning', 'created_at')
 
+    def has_module_permission(self, request):
+        return getattr(request.user, 'role', None) in {'admin', 'auditor'}
+
+    def has_view_permission(self, request, obj=None):
+        return getattr(request.user, 'role', None) in {'admin', 'auditor'}
+
     def has_add_permission(self, request):
         return False
 
 
+@admin.register(AiSetting)
+class AiSettingAdmin(admin.ModelAdmin):
+    list_display = ('enabled', 'llm_enabled', 'api_base_url', 'api_model', 'api_model_deep', 'timeout_seconds', 'updated_at')
+    readonly_fields = ('updated_at',)
+
+    def has_module_permission(self, request):
+        return getattr(request.user, 'role', None) == 'admin'
+
+    def has_view_permission(self, request, obj=None):
+        return getattr(request.user, 'role', None) == 'admin'
+
+    def has_add_permission(self, request):
+        return getattr(request.user, 'role', None) == 'admin'
+
+    def has_change_permission(self, request, obj=None):
+        return getattr(request.user, 'role', None) == 'admin'
+
+    def has_delete_permission(self, request, obj=None):
+        return getattr(request.user, 'role', None) == 'admin'
+
+
 @admin.register(Ticket)
 class TicketAdmin(admin.ModelAdmin):
-    list_display = ('id', 'title', 'category', 'status', 'submitter', 'assignee', 'auditor', 'submitTime')
-    list_filter = ('category', 'status')
+    list_display = ('id', 'title', 'category', 'status', 'ai_auto_approved', 'ai_suggested_category', 'submitter', 'assignee', 'auditor', 'submitTime')
+    list_filter = ('category', 'status', 'ai_auto_approved')
     search_fields = ('title', 'description', 'location', 'submitter__username', 'auditor__username')
 
 
@@ -75,9 +102,14 @@ class CustomUserAdmin(admin.ModelAdmin):
         return form
 
     def save_model(self, request, obj, form, change):
-        # 如果是新创建用户且设置了密码，需要加密保存
-        if not change:
-            obj.set_password(obj.password)
+        raw_password = obj.password or ''
+        if raw_password and not (
+            raw_password.startswith('pbkdf2_')
+            or raw_password.startswith('argon2$')
+            or raw_password.startswith('bcrypt$')
+            or raw_password.startswith('scrypt$')
+        ):
+            obj.set_password(raw_password)
         
         # 如果角色是管理员或审核员，自动赋予登录后台的权限
         if obj.role in ['admin', 'auditor']:

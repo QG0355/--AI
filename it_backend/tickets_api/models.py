@@ -63,6 +63,7 @@ class Ticket(models.Model):
     STATUS_CHOICES = [
         ('pending_dorm', '待审核员审核'),
         ('pending_dispatch', '待派单'),
+        ('pending_repair', '待维修'),
         ('repairing', '维修中'),
         ('finished', '维修完成(待评价)'),
         ('closed', '已结单'),
@@ -108,6 +109,19 @@ class Ticket(models.Model):
     response_time = models.DateTimeField(blank=True, null=True, verbose_name="响应时间")
     repair_result = models.TextField(blank=True, null=True, verbose_name="维修结果")
     materials_used = models.TextField(blank=True, null=True, verbose_name="耗材使用")
+    material_cost = models.DecimalField(max_digits=10, decimal_places=2, default=0.00, verbose_name="耗材费用")
+    urge_count = models.IntegerField(default=0, verbose_name="催单次数")
+    last_urge_at = models.DateTimeField(blank=True, null=True, verbose_name="上次催单时间")
+    expected_finish_days = models.PositiveIntegerField(default=0, verbose_name="特殊处理预计天数")
+    special_reason = models.TextField(blank=True, default='', verbose_name="特殊处理说明")
+    ai_auto_approved = models.BooleanField(default=False, verbose_name="AI自动过审")
+    ai_auto_checked_at = models.DateTimeField(blank=True, null=True, verbose_name="AI过审时间")
+    ai_suggested_category = models.CharField(max_length=50, blank=True, default='', verbose_name="AI建议类别")
+    ai_auto_reason = models.TextField(blank=True, default='', verbose_name="AI过审说明")
+
+    reimbursement_no = models.CharField(max_length=32, blank=True, default='', verbose_name="报销单号")
+    reimbursement_text = models.TextField(blank=True, default='', verbose_name="报销单内容")
+    reimbursement_generated_at = models.DateTimeField(blank=True, null=True, verbose_name="报销单生成时间")
 
     submitTime = models.DateTimeField(auto_now_add=True, verbose_name="提交时间")
     updateTime = models.DateTimeField(auto_now=True, verbose_name="更新时间")
@@ -148,6 +162,14 @@ class ServiceStar(models.Model):
     description = models.TextField(blank=True, verbose_name="服务事迹")
     score = models.DecimalField(max_digits=3, decimal_places=2, default=5.00, verbose_name="服务评分")
     score_count = models.IntegerField(default=0, verbose_name="评价人数")
+    worker = models.ForeignKey(
+        CustomUser,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='service_star_records',
+        verbose_name="关联维修人员",
+    )
     avatar_url = models.URLField(blank=True, verbose_name="头像地址")
     sort_order = models.IntegerField(default=0, verbose_name="排序值")
     is_active = models.BooleanField(default=True, verbose_name="是否展示")
@@ -189,8 +211,10 @@ class TicketAttachment(models.Model):
 
 class AiSetting(models.Model):
     enabled = models.BooleanField(default=True, verbose_name="启用 AI 助手")
+    llm_enabled = models.BooleanField(default=False, verbose_name="深度思考")
     api_base_url = models.CharField(max_length=255, blank=True, default='https://api.deepseek.com/v1', verbose_name="API Base URL")
     api_model = models.CharField(max_length=100, blank=True, default='deepseek-chat', verbose_name="模型")
+    api_model_deep = models.CharField(max_length=100, blank=True, default='', verbose_name="深度思考模型")
     api_key = models.CharField(max_length=255, blank=True, default='', verbose_name="API Key")
     timeout_seconds = models.IntegerField(default=30, verbose_name="超时(秒)")
     updated_at = models.DateTimeField(auto_now=True, verbose_name="更新时间")
@@ -233,6 +257,8 @@ class MaintenanceProfile(models.Model):
     worker_id = models.CharField(max_length=50, unique=True, verbose_name="维修人员工号")
     finished_count = models.IntegerField(default=0, verbose_name="完成维修订单数")
     rating = models.DecimalField(max_digits=3, decimal_places=2, default=5.00, verbose_name="评分")
+    department = models.CharField(max_length=100, blank=True, default='', verbose_name="所属部门/工种")
+    contact_phone = models.CharField(max_length=20, blank=True, default='', verbose_name="联系电话")
 
     class Meta:
         verbose_name = "维修员详情"
@@ -246,6 +272,7 @@ class AuditorProfile(models.Model):
     user = models.OneToOneField(CustomUser, on_delete=models.CASCADE, related_name='auditor_profile', verbose_name="关联用户")
     auditor_id = models.CharField(max_length=50, unique=True, verbose_name="审核员工号")
     audited_count = models.IntegerField(default=0, verbose_name="审核保修单数")
+    contact_phone = models.CharField(max_length=20, blank=True, default='', verbose_name="联系电话")
 
     class Meta:
         verbose_name = "审核员详情"

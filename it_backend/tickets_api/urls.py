@@ -23,6 +23,7 @@ urlpatterns = [
     path('', include(router.urls)),
     # path('change_status/<int:order_id>/', views.change_status, name='change_status'),
     path('ai-chat/', ai_chat, name='ai_chat'),
+    path('ai/generate_ticket/', views.ai_generate_ticket, name='api_ai_generate_ticket'),
     path('api/token/', TokenObtainPairView.as_view(), name='token_obtain_pair'),
     path('api/token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
 ]

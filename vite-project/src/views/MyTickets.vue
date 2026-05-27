@@ -28,9 +28,12 @@
         
         <div class="card-header">
           <span class="ticket-id">#{{ ticket.id }}</span>
-          <span :class="['status-badge', getStatusClass(ticket.status)]">
-            {{ getStatusName(ticket.status) }}
-          </span>
+          <div class="status-row">
+            <span :class="['status-badge', getStatusClass(ticket.status)]">
+              {{ getStatusName(ticket.status) }}
+            </span>
+            <span v-if="isOverdue(ticket)" class="overdue-badge">超时</span>
+          </div>
         </div>
 
         <h3 class="ticket-title">{{ ticket.title }}</h3>
@@ -38,11 +41,23 @@
         <div class="card-info">
           <p><i class="fas fa-map-marker-alt"></i> {{ ticket.location }}</p>
           <p><i class="fas fa-clock"></i> {{ formatDate(ticket.submitTime) }}</p>
+          <div v-if="ticket.assignee_name" class="worker-info">
+            <p><i class="fas fa-hard-hat"></i> 维修工：{{ ticket.assignee_name }} <span v-if="ticket.assignee_department">({{ ticket.assignee_department }})</span></p>
+            <p v-if="ticket.assignee_contact"><i class="fas fa-phone-alt"></i> 电话：{{ ticket.assignee_contact }}</p>
+          </div>
+          <div v-if="ticket.auditor_name || ticket.auditor_contact" class="worker-info auditor">
+            <p><i class="fas fa-user-check"></i> 审核员：{{ ticket.auditor_name || '未分配' }}</p>
+            <p v-if="ticket.auditor_contact"><i class="fas fa-phone-alt"></i> 电话：{{ ticket.auditor_contact }}</p>
+          </div>
         </div>
 
         <div class="reject-box" v-if="ticket.status === 'rejected'">
           <div class="reject-title">驳回原因</div>
           <div class="reject-reason">{{ ticket.rejected_reason || '未填写驳回理由' }}</div>
+        </div>
+
+        <div class="card-actions">
+          <button @click="openDetail(ticket)" class="btn-text-primary">查看详情</button>
         </div>
 
         <div class="card-actions" v-if="(ticket.attachments?.length || 0) > 0">
@@ -51,6 +66,12 @@
 
         <div class="card-actions" v-if="ticket.status === 'pending_dorm' && auth.currentUser?.role === 'student'">
           <button @click="deleteTicket(ticket.id)" class="btn-text-danger">撤销工单</button>
+        </div>
+
+        <div class="card-actions" v-if="(ticket.status === 'pending_repair' || ticket.status === 'repairing') && auth.currentUser?.role === 'student'">
+          <button @click="urgeTicket(ticket.id)" class="btn-text-warning">
+            <i class="fas fa-bell"></i> 催办 ({{ ticket.urge_count || 0 }})
+          </button>
         </div>
 
         <div class="card-actions" v-if="ticket.status === 'finished' && auth.currentUser?.role === 'student'">
@@ -117,11 +138,47 @@
         </div>
       </div>
     </div>
+
+    <div v-if="detailModal.open" class="modal-mask" @click.self="closeDetail">
+      <div class="modal">
+        <div class="modal-title">工单详情</div>
+        <div class="detail-kv"><span class="k">工单号</span><span class="v">#{{ detailModal.ticket?.id }}</span></div>
+        <div class="detail-kv"><span class="k">标题</span><span class="v">{{ detailModal.ticket?.title }}</span></div>
+        <div class="detail-kv"><span class="k">类别</span><span class="v">{{ detailModal.ticket?.category }}</span></div>
+        <div class="detail-kv"><span class="k">优先级</span><span class="v">{{ detailModal.ticket?.priority }}</span></div>
+        <div class="detail-kv"><span class="k">状态</span><span class="v">{{ getStatusName(detailModal.ticket?.status) }}</span></div>
+        <div class="detail-kv"><span class="k">地点</span><span class="v">{{ detailModal.ticket?.location }}</span></div>
+        <div class="detail-kv"><span class="k">联系电话</span><span class="v">{{ detailModal.ticket?.contact }}</span></div>
+        <div class="detail-kv"><span class="k">提交时间</span><span class="v">{{ formatDate(detailModal.ticket?.submitTime) }}</span></div>
+        <div class="detail-kv"><span class="k">更新时间</span><span class="v">{{ formatDate(detailModal.ticket?.updateTime) }}</span></div>
+        <div class="detail-block">
+          <div class="k">故障描述</div>
+          <div class="v pre">{{ detailModal.ticket?.description || '未填写' }}</div>
+        </div>
+        <div class="detail-block" v-if="detailModal.ticket?.repair_result">
+          <div class="k">维修结果</div>
+          <div class="v pre">{{ detailModal.ticket?.repair_result }}</div>
+        </div>
+        <div class="detail-block" v-if="detailModal.ticket?.materials_used">
+          <div class="k">耗材明细</div>
+          <div class="v pre">{{ detailModal.ticket?.materials_used }}</div>
+        </div>
+        <div class="modal-actions">
+          <button
+            v-if="(detailModal.ticket?.attachments?.length || 0) > 0"
+            class="btn-confirm"
+            type="button"
+            @click="openAttachments(detailModal.ticket.attachments)"
+          >查看附件</button>
+          <button class="btn-cancel" type="button" @click="closeDetail">关闭</button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
 <script setup>
-import { onMounted, ref } from 'vue'
+import { onMounted, onUnmounted, ref, watch } from 'vue'
 import { useTicketStore } from '@/stores/ticketStore'
 import { useAuthStore } from '@/stores/auth'
 import axios from 'axios'
@@ -133,6 +190,11 @@ const auth = useAuthStore()
 const router = useRouter()
 const evaluateModal = ref({ open: false, ticketId: null, rating: 5, text: '', anonymous: true, submitting: false })
 const attachmentsModal = ref({ open: false, items: [] })
+const detailModal = ref({ open: false, ticket: null })
+const urgeCdMap = ref({})
+let lastOverdueKey = ''
+let lastRejectedKey = ''
+let pollId = null
 
 // 2. 定义搜索变量
 const searchText = ref('')
@@ -143,10 +205,52 @@ function doSearch() {
 }
 
 onMounted(() => {
-  if (auth.isLoggedIn) {
-    ticketStore.fetchTickets() // 默认加载全部
-  }
+  if (!auth.isLoggedIn) return
+  ticketStore.fetchTickets()
+  pollId = setInterval(() => {
+    ticketStore.fetchTickets(searchText.value)
+  }, 15000)
 })
+
+onUnmounted(() => {
+  if (pollId) clearInterval(pollId)
+})
+
+function isOverdue(t) {
+  const now = Date.now()
+  const submit = t.submitTime ? new Date(t.submitTime).getTime() : now
+  const update = t.updateTime ? new Date(t.updateTime).getTime() : submit
+  const mins = (now - update) / 60000
+  if (t.status === 'pending_dorm') return mins > 24 * 60
+  if (t.status === 'pending_dispatch') return mins > 24 * 60
+  if (t.status === 'pending_repair') return mins > 24 * 60
+  if (t.status === 'repairing') {
+    const days = Number(t.expected_finish_days || 0)
+    const limit = (days > 0 ? days * 24 * 60 : 24 * 60)
+    return mins > limit
+  }
+  return false
+}
+
+watch(
+  () => ticketStore.tickets,
+  (list) => {
+    const overdue = (list || []).filter(isOverdue)
+    const key = overdue.map(t => t.id).join(',')
+    if (key && key !== lastOverdueKey) {
+      alert(`⏰ 超时提醒：你有 ${overdue.length} 个工单超过24小时未处理/未推进，建议催办或联系处理`)
+    }
+    lastOverdueKey = key
+
+    const rejected = (list || []).filter(t => t.status === 'rejected')
+    const rkey = rejected.map(t => t.id).join(',')
+    if (rkey && rkey !== lastRejectedKey) {
+      alert(`❗驳回提醒：你有 ${rejected.length} 个工单被驳回，请进入“我的报修记录”查看驳回原因并重新提交`)
+    }
+    lastRejectedKey = rkey
+  },
+  { deep: true }
+)
 
 // 撤销功能
 async function deleteTicket(id) {
@@ -160,6 +264,30 @@ async function deleteTicket(id) {
     ticketStore.fetchTickets(searchText.value)
   } catch (e) {
     // alert("撤销失败")
+  }
+}
+
+async function urgeTicket(id) {
+  const cdUntil = urgeCdMap.value[id]
+  if (cdUntil && Date.now() < cdUntil) {
+    const remain = Math.ceil((cdUntil - Date.now()) / 1000)
+    alert(`请稍等 ${remain} 秒再催办`)
+    return
+  }
+  try {
+    await axios.post(apiUrl(`tickets/${id}/handle/`), {
+      type: 'urge'
+    }, {
+      headers: { Authorization: `Token ${auth.token}` }
+    })
+    alert('催办成功！')
+    urgeCdMap.value[id] = Date.now() + 12 * 60 * 60 * 1000
+    ticketStore.fetchTickets(searchText.value)
+  } catch (e) {
+    alert(e.response?.data?.detail || '催办失败')
+    if (e.response?.status === 429) {
+      urgeCdMap.value[id] = Date.now() + 12 * 60 * 60 * 1000
+    }
   }
 }
 
@@ -186,6 +314,16 @@ function openAttachments(items) {
 function closeAttachments() {
   attachmentsModal.value.open = false
   attachmentsModal.value.items = []
+}
+
+function openDetail(t) {
+  detailModal.value.open = true
+  detailModal.value.ticket = t
+}
+
+function closeDetail() {
+  detailModal.value.open = false
+  detailModal.value.ticket = null
 }
 
 async function submitEvaluate() {
@@ -224,6 +362,7 @@ function getStatusClass(status) {
   const map = {
     'pending_dorm': 'pending',
     'pending_dispatch': 'pending',
+    'pending_repair': 'pending',
     'repairing': 'processing',
     'finished': 'completed',
     'closed': 'closed',
@@ -236,7 +375,8 @@ function getStatusClass(status) {
 function getStatusName(status) {
     const map = {
         'pending_dorm': '待审核',
-        'pending_dispatch': '正在处理',
+        'pending_dispatch': '待派单',
+        'pending_repair': '待维修',
         'repairing': '维修中',
         'finished': '已完成', 
         'closed': '已结单',
@@ -316,6 +456,12 @@ function formatDate(iso) {
 
 .card-header { display: flex; justify-content: space-between; margin-bottom: 12px; font-size: 13px; color: #888;}
 
+.status-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .status-badge { 
   padding: 4px 10px; 
   border-radius: 6px; 
@@ -326,6 +472,62 @@ function formatDate(iso) {
 .status-badge.processing { background: #e6f7ff; color: #1890ff; }
 .status-badge.completed { background: #f6ffed; color: #52c41a; }
 .status-badge.closed { background: #f5f5f5; color: #d9d9d9; }
+
+.overdue-badge {
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  background: #fff7e6;
+  color: #fa8c16;
+}
+
+.detail-kv {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 0;
+  border-bottom: 1px dashed #eef2f7;
+}
+
+.detail-kv .k {
+  color: #64748b;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.detail-kv .v {
+  color: #111827;
+  font-size: 13px;
+  text-align: right;
+  word-break: break-all;
+}
+
+.detail-block {
+  margin-top: 10px;
+}
+
+.detail-block .k {
+  color: #64748b;
+  font-size: 13px;
+  font-weight: 800;
+  margin-bottom: 6px;
+}
+
+.detail-block .v {
+  font-size: 13px;
+  color: #111827;
+  line-height: 1.6;
+}
+
+.detail-block .pre {
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: #f8fafc;
+  border: 1px solid #eef2f7;
+  border-radius: 10px;
+  padding: 10px;
+}
 
 .ticket-title { margin: 0 0 15px 0; font-size: 16px; color: #333; line-height: 1.4; }
 
@@ -338,6 +540,12 @@ function formatDate(iso) {
 .btn-text-danger:hover { text-decoration: underline; }
 .btn-text-primary { background: none; border: none; color: #1890ff; cursor: pointer; font-size: 13px; }
 .btn-text-primary:hover { text-decoration: underline; }
+.btn-text-warning { background: none; border: none; color: #fa8c16; cursor: pointer; font-size: 13px; font-weight: bold; }
+.btn-text-warning:hover { text-decoration: underline; }
+
+.worker-info { margin-top: 8px; padding-top: 8px; border-top: 1px dashed #f0f0f0; }
+.worker-info p { margin: 4px 0; color: #007bb5; font-size: 12px; }
+.worker-info.auditor p { color: #7c3aed; }
 
 .reject-box { margin-top: 10px; padding: 10px 12px; background: #fff7ed; border: 1px solid #fed7aa; border-radius: 8px; }
 .reject-title { font-size: 12px; font-weight: 800; color: #c2410c; margin-bottom: 4px; }
